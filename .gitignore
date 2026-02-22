@@ -1,0 +1,16 @@
+# venvs
+.e3e_venv/
+
+# logs and caches
+__pycache__/
+.mypy_cache/
+.ruff_cache/
+logs/
+MUJOCO_LOG.TXT
+
+# data
+data
+data/
+
+# MacOS
+.DS_Store
