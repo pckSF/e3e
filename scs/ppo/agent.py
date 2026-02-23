@@ -69,6 +69,7 @@ def loss_fn(
         jax.lax.stop_gradient(values),
         next_values,
         batch.terminals,
+        batch.truncated,
         config.discount_factor,
         config.gae_lambda,
     )

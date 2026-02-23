@@ -82,7 +82,7 @@ def get_config[ConfigT](
     Args:
         config_file: Path to the JSON configuration file.
         create_config: A callable that creates the config object from keyword
-            arguments (e.g., ``create_ppo_config`` or ``create_appo_config``).
+            arguments (e.g., ``create_ppo_config``).
         seed: Optional seed value that overrides the seed in the JSON file.
             Useful for running multiple experiments with different seeds.
         with_hash: If ``True``, also returns an MD5 hash of the config data.

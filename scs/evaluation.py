@@ -9,17 +9,15 @@ import jax.numpy as jnp
 import numpy as np
 
 if TYPE_CHECKING:
-    from scs.appo.agent_config import APPOConfig
-    from scs.appo.models import APPOModel
     from scs.env_wrapper import JNPWrapper
     from scs.ppo.agent_config import PPOConfig
     from scs.ppo.models import PPOModel
 
 
 def evaluation_trajectory(
-    model: PPOModel | APPOModel,
+    model: PPOModel,
     env: JNPWrapper,
-    config: PPOConfig | APPOConfig,
+    config: PPOConfig,
     key: jax.Array,
     episode_length: int = 1000,
 ) -> jax.Array:

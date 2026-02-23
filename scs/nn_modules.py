@@ -11,25 +11,19 @@ import jax.numpy as jnp
 import optax
 
 if TYPE_CHECKING:
-    from scs.appo.agent_config import APPOConfig
     from scs.ppo.agent_config import PPOConfig
 
 
 MODEL_CONFIG_POSTFIX: dict[str, str] = {
     "PPOModel": "policyvalue",
-    "APPOModel": "policyvalue",
-    "SACPolicy": "policy",
-    "SACQvalue": "qvalue",
 }
 
 
-def get_optimizer(
-    config: PPOConfig | APPOConfig, model: nnx.Module
-) -> optax.GradientTransformation:
+def get_optimizer(config: PPOConfig, model: nnx.Module) -> optax.GradientTransformation:
     """Creates an optimizer based on the configuration and model class name.
 
     Args:
-        config: The configuration object (``PPOConfig`` or ``SACConfig``).
+        config: The configuration object (``PPOConfig``).
         model: The model instance whose class name is used to extract the postfix.
             The class name is converted to lowercase to get the postfix (e.g.,
             ``PPOModel`` -> ``"policyvalue"``, ``Policy`` -> ``"policy"``).
@@ -58,9 +52,7 @@ def get_optimizer(
         )
 
     n_update_steps = config.n_batches * config.max_training_loops
-    # PPOConfig has n_epochs_per_rollout, SACConfig does not
-    if hasattr(config, "n_epochs_per_rollout"):
-        n_update_steps *= config.n_epochs_per_rollout
+    n_update_steps *= config.n_epochs_per_rollout
 
     if lr_schedule_type == "constant":
         lr_schedule = optax.constant_schedule(value=lr_init)

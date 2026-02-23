@@ -55,6 +55,7 @@ def collect_trajectories(
             reward,
             next_observation,
             terminated,
+            truncated,
         )
         reset_mask = jnp.logical_or(terminated, truncated)
         if jnp.any(reset_mask):
