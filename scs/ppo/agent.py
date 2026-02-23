@@ -16,7 +16,6 @@ from scs.data import (
     get_batch_from_trajectory,
 )
 from scs.rl_computations import (
-    action_normal_log_density,
     calculate_gae,
 )
 
@@ -45,11 +44,6 @@ def loss_fn(
     includes the policy loss (PPO's clipped objective), the value function loss,
     and an entropy bonus to encourage exploration.
 
-    The entropy is based on the differential entropy of a normal distribution::
-
-        H(X) = log(sigma * sqrt(2 * pi * e))
-             = log(sigma) + 0.5 * (log(2 * pi) + 1)
-
     Since the optax optimizers perform gradient descent, we return the negative
     of the total loss. Reminder, the loss is composed of a:
 
@@ -65,7 +59,7 @@ def loss_fn(
     Returns:
         The total PPO loss for the batch.
     """
-    a_means, a_log_stds, values = model(batch.observations)
+    policy_logits, values = model(batch.observations)
     next_values = model.get_values(batch.next_observations)
     values = jnp.squeeze(values)
     next_values = jnp.squeeze(jax.lax.stop_gradient(next_values))
@@ -75,7 +69,6 @@ def loss_fn(
         jax.lax.stop_gradient(values),
         next_values,
         batch.terminals,
-        batch.truncations,
         config.discount_factor,
         config.gae_lambda,
     )
@@ -85,11 +78,20 @@ def loss_fn(
     if config.normalize_advantages:
         advantages = (advantages - jnp.mean(advantages)) / (jnp.std(advantages) + 1e-8)
 
-    entropy = jnp.sum(a_log_stds + 0.5 * (jnp.log(2 * jnp.pi) + 1), axis=-1).mean()
+    # Discrete action entropy: H = -sum(p * log(p))
+    policy = jax.nn.softmax(policy_logits)
+    log_policy = jax.nn.log_softmax(policy_logits)
+    entropy = jnp.mean(-jnp.sum(policy * log_policy, axis=-1))
 
-    action_log_densities = action_normal_log_density(batch.actions, a_means, a_log_stds)
-    log_ratios = action_log_densities - batch.action_log_densities
+    old_log_policy = jax.nn.log_softmax(batch.policy_logits)
+
+    actions = batch.actions[..., jnp.newaxis]
+    actions_log_probs = jnp.take_along_axis(log_policy, actions).squeeze()
+    old_actions_log_probs = jnp.take_along_axis(old_log_policy, actions).squeeze()
+    log_ratios = actions_log_probs - old_actions_log_probs
+
     density_ratios = jnp.exp(log_ratios)
+
     policy_gradient_value = density_ratios * advantages
     clipped_pg_value = (
         jax.lax.clamp(

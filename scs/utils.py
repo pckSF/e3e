@@ -9,6 +9,8 @@ import jax.numpy as jnp
 if TYPE_CHECKING:
     import numpy as np
 
+    from scs.data import TrajectoryData
+
 
 @partial(jax.jit, static_argnums=(0, 1, 2, 3))
 def get_train_batch_indices(
@@ -42,6 +44,21 @@ def get_train_batch_indices(
             partial(jax.random.choice, a=indices, shape=(batch_size,), replace=False),
             keys,
         )
+
+
+@jax.jit
+def stack_trajectories(data: list[TrajectoryData]) -> TrajectoryData:
+    """Stacks a list of Data containers along a new leading axis.
+
+    This mirrors the way a ``jax.lax.scan`` would stack returns across iterations.
+    """
+    return jax.tree.map(lambda *leaves: jnp.stack(leaves), *data)
+
+
+@jax.jit
+def concatenate_losses(data: list[TrajectoryData]) -> TrajectoryData:
+    """Concatenates a list of Data containers along the leading axis."""
+    return jax.tree.map(lambda *leaves: jnp.concatenate(leaves, axis=0), *data)
 
 
 def compare_observations(

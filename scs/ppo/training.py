@@ -4,6 +4,7 @@ from functools import partial
 import time
 from typing import TYPE_CHECKING
 
+from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -19,17 +20,16 @@ from scs.ppo.agent import (
     update_step,
 )
 from scs.ppo.rollouts import collect_trajectories
+from scs.utils import concatenate_losses
 
 if TYPE_CHECKING:
-    from flax import nnx
-
-    from mujoco_playground import State
     from scs.data_logging import DataLogger
-    from scs.env_wrapper import EnvTrainingWrapper
+    from scs.env_wrapper import JNPWrapper
     from scs.nn_modules import NNTrainingState
     from scs.ppo.agent_config import PPOConfig
 
 
+@partial(jax.jit, static_argnums=(2,), donate_argnums=(0,))
 def updates_on_rollout(
     train_state: NNTrainingState,
     trajectories: TrajectoryData,
@@ -78,15 +78,14 @@ def updates_on_rollout(
     return train_state, losses, loss_components
 
 
-@partial(jax.jit, static_argnums=(2, 3, 4), donate_argnums=(0, 1))
 def training_epoch(
     train_state: NNTrainingState,
-    env_state: State,
-    env_def: EnvTrainingWrapper,
+    observation: jax.Array,
+    env: JNPWrapper,
     config: PPOConfig,
     n_loops: int,
     key: jax.Array,
-) -> tuple[NNTrainingState, State, jax.Array, PPOLossComponents]:
+) -> tuple[NNTrainingState, jax.Array, jax.Array, PPOLossComponents]:
     """Executes multiple training loops as a single JIT-compiled epoch.
 
     Each training loop collects a rollout segment of length
@@ -95,8 +94,8 @@ def training_epoch(
 
     Args:
         train_state: Current training state containing model parameters.
-        env_state: Vectorized environment state at the start of the epoch.
-        env_def: Environment wrapper providing step and reset functions.
+        observation: Vectorized environment observation at the start of the epoch.
+        env: Environment wrapper providing step and reset functions.
         config: PPO configuration with rollout and optimization settings.
         n_loops: Number of training loops to execute within this epoch.
         key: PRNG key split internally for each training loop.
@@ -106,19 +105,18 @@ def training_epoch(
         loss values reshaped to ``(n_loops * n_epochs_per_rollout, n_batches)``,
         and loss components with the same batch structure.
     """
-    keys = jax.random.split(key, num=n_loops)
 
     def _training_loop(
-        carry: tuple[NNTrainingState, State],
+        train_state: NNTrainingState,
+        observation: jax.Array,
         key: jax.Array,
-    ) -> tuple[tuple[NNTrainingState, State], tuple[jax.Array, PPOLossComponents]]:
+    ) -> tuple[NNTrainingState, jax.Array, jax.Array, PPOLossComponents]:
         """Collects trajectories and performs PPO updates."""
-        train_state, env_state = carry
         rollout_key, update_key = jax.random.split(key, num=2)
-        trajectories, env_state = collect_trajectories(
+        trajectories, observation = collect_trajectories(
             train_state,
-            env_state,
-            env_def,
+            observation,
+            env,
             config,
             rollout_key,
         )
@@ -129,26 +127,31 @@ def training_epoch(
             config,
             update_key,
         )
-        return (train_state, env_state), (loss, loss_components)
+        return train_state, observation, loss, loss_components
 
-    (train_state, env_state), (losses, loss_components) = jax.lax.scan(
-        _training_loop,
-        (train_state, env_state),
-        keys,
-    )
+    keys = jax.random.split(key, num=n_loops)
+    training_losses = []
+    training_loss_components = []
+    for k in keys:
+        train_state, observation, loss, loss_components = _training_loop(
+            train_state,
+            observation,
+            k,
+        )
+        training_losses.append(loss)
+        training_loss_components.append(loss_components)
+
     return (
         train_state,
-        env_state,
-        losses.reshape((-1, config.n_batches)),
-        jax.tree.map(
-            lambda leaf: leaf.reshape((-1, config.n_batches)), loss_components
-        ),
+        observation,
+        jnp.concatenate(training_losses, axis=0),
+        concatenate_losses(training_loss_components),
     )
 
 
 def train_agent(
     train_state: NNTrainingState,
-    env_def: EnvTrainingWrapper,
+    env: JNPWrapper,
     config: PPOConfig,
     data_logger: DataLogger,
     max_training_loops: int,
@@ -161,7 +164,7 @@ def train_agent(
     Args:
         train_state: Initial training state containing model definition, parameters,
             and the corresponding optimizer.
-        env_def: Environment wrapped in vectorization wrapper.
+        env: Environment wrapped in vectorization wrapper.
         config: PPO configuration with training hyperparameters.
         data_logger: Logger responsible for persisting checkpoints and metrics.
         max_training_loops: Number of outer training loops to perform.
@@ -185,14 +188,14 @@ def train_agent(
     )
     n_env_steps = 0
 
-    env_state = env_def.reset(jax.random.split(rngs.training(), num=config.n_actors))
+    observation = env.reset(seed=config.seed)
     progress_bar: tqdm = tqdm(range(n_epochs), desc="Training Epochs")
     for epoch in progress_bar:
         start_time = time.time()
-        train_state, env_state, losses, loss_components = training_epoch(
+        train_state, observation, losses, loss_components = training_epoch(
             train_state,
-            env_state,
-            env_def,
+            observation,
+            env,
             config,
             config.evaluation_frequency,
             rngs.training(),
@@ -214,9 +217,10 @@ def train_agent(
             filename="checkpoint",
             data=train_state.model_state,
         )
+        model = nnx.merge(train_state.model_def, train_state.model_state)
         eval_rewards = evaluation_trajectory(
-            train_state,
-            env_def,
+            model,
+            env,
             config,
             rngs.evaluation(),
         )

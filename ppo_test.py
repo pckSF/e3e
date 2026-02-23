@@ -5,12 +5,12 @@ from pathlib import Path
 import time
 
 from flax import nnx
+import gymnasium as gym
 import jax
 
-from mujoco_playground import registry
 from scs.configuration import get_config
 from scs.data_logging import DataLogger
-from scs.env_wrapper import EnvTrainingWrapper
+from scs.env_wrapper import JNPWrapper
 from scs.ppo import train_agent
 from scs.ppo.agent_config import create_ppo_config
 from scs.ppo.models import make_ppo_train_state
@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config_file",
         type=str,
-        default="scs/configs/ppo/ppo_test_walkerwalk.json",
+        default="scs/configs/ppo/ppo_llander.json",
         help="Path to the PPO configuration JSON file.",
     )
     parser.add_argument(
@@ -73,23 +73,23 @@ def main() -> None:
         logger.log_info(f"Starting training with seed: {seed}", print_message=True)
 
         # Setup Environment
-        env_def = EnvTrainingWrapper(
-            registry.load(agent_config.env_name),
-            registry.get_default_config(agent_config.env_name),
-            agent_config,
+        env = JNPWrapper(
+            gym.make_vec(
+                "CartPole-v1", num_envs=agent_config.n_actors, vectorization_mode="sync"
+            ),
         )
 
         # Create the model
         train_state = make_ppo_train_state(
-            env_def,
+            env,
             agent_config,
             rngs,
         )
 
         start_time = time.time()
-        train_state, envs, losses, rewards = train_agent(
+        train_state, losses, eval_rewards, kl_estimates = train_agent(
             train_state=train_state,
-            env_def=env_def,
+            env=env,
             config=agent_config,
             data_logger=logger,
             max_training_loops=agent_config.max_training_loops,

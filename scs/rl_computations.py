@@ -107,7 +107,7 @@ def calculate_expected_return(
 
 def gae_from_td_residuals(
     td_residuals: jax.Array,
-    trajectory_resets: jax.Array,
+    terminals: jax.Array,
     gamma: float,
     lmbda: float,
 ) -> jax.Array:
@@ -116,42 +116,32 @@ def gae_from_td_residuals(
     Terminal steps reset the discounted sum to account for episode endings and the
     environment restarting within a trajectory.
 
-    The inputs are transposed from ``[batch_size, n_rollout_steps]`` to
-    ``[n_rollout_steps, batch_size]`` so that ``jax.lax.scan`` iterates over
-    timesteps (in reverse) while vectorizing across the batch. The GAE carry is
-    initialized to zero for each element in the batch. The output is transposed
-    back to the original shape before returning.
-
     Args:
-        td_residuals: The temporal difference errors for each timestep, expected
-            input shape ``[batch_size, n_rollout_steps]``.
-        trajectory_resets: A boolean array indicating where GAE should be reset
-            due totermination or truncation, expected input shape
-            ``[batch_size, n_rollout_steps]``.
+        td_residuals: The temporal difference errors for each timestep.
+        terminals: A boolean array indicating the end of an episode.
         gamma: The discount factor for future rewards.
         lmbda: The lambda parameter for GAE, balancing bias and variance.
 
     Returns:
-        The calculated Generalized Advantage Estimates for each timestep, output
-        shape ``[batch_size, n_rollout_steps]``.
+        The calculated Generalized Advantage Estimates for each timestep.
     """
 
     def _get_gae_value(
         previous_gae: jax.Array,
-        residual_reset: tuple[jax.Array, jax.Array],
+        residual_terminal: tuple[jax.Array, jax.Array],
     ) -> tuple[jax.Array, jax.Array]:
         """Computes one step of the GAE; has to be run in reverse!"""
-        td_residual, t_reset = residual_reset
-        current_gae = td_residual + gamma * lmbda * previous_gae * (1.0 - t_reset)
+        td_residual, terminal = residual_terminal
+        current_gae = td_residual + gamma * lmbda * previous_gae * (1.0 - terminal)
         return current_gae, current_gae
 
     _, gae = jax.lax.scan(
         _get_gae_value,
-        jnp.zeros(td_residuals.shape[0]),
-        (td_residuals.T, trajectory_resets.T),  # Scan over rollout steps in reverse
+        jnp.zeros_like(td_residuals[-1]),
+        (td_residuals, terminals),
         reverse=True,
     )
-    return gae.T  # Transpose back to original shape [batch_size, n_rollout_steps]
+    return gae
 
 
 def calculate_gae(
@@ -159,11 +149,9 @@ def calculate_gae(
     values: jax.Array,
     next_values: jax.Array,
     terminals: jax.Array,
-    truncations: jax.Array,
     gamma: float,
     lmbda: float,
 ) -> jax.Array:
     """Computes the Generalized Advantage Estimation."""
     td_residuals = rewards + gamma * next_values * (1.0 - terminals) - values
-    trajectory_resets = jnp.logical_or(terminals, truncations)
-    return gae_from_td_residuals(td_residuals, trajectory_resets, gamma, lmbda)
+    return gae_from_td_residuals(td_residuals, terminals, gamma, lmbda)

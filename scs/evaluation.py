@@ -1,72 +1,65 @@
 from __future__ import annotations
 
-from functools import partial
 from typing import (
     TYPE_CHECKING,
 )
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 if TYPE_CHECKING:
-    from mujoco_playground import State
-    from scs.env_wrapper import EnvTrainingWrapper
-    from scs.nn_modules import (
-        NNTrainingState,
-        NNTrainingStateSoftTarget,
-    )
+    from scs.appo.agent_config import APPOConfig
+    from scs.appo.models import APPOModel
+    from scs.env_wrapper import JNPWrapper
     from scs.ppo.agent_config import PPOConfig
     from scs.ppo.models import PPOModel
-    from scs.sac.agent_config import SACConfig
-    from scs.sac.models import SACPolicy
 
 
-@partial(jax.jit, static_argnums=(1, 2))
 def evaluation_trajectory(
-    train_state: NNTrainingState | NNTrainingStateSoftTarget,
-    env_def: EnvTrainingWrapper,
-    config: PPOConfig | SACConfig,
+    model: PPOModel | APPOModel,
+    env: JNPWrapper,
+    config: PPOConfig | APPOConfig,
     key: jax.Array,
+    episode_length: int = 1000,
 ) -> jax.Array:
     """Runs the agent for a full evaluation trajectory in parallel environments.
 
     Args:
-        train_state: Training state containing the policy parameters to test.
-        env_def: Environment wrapped in vectorization wrapper.
-        config: PPO or SAC configuration specifying the number of actors.
+        model: PPO model containing the policy parameters to test.
+        env: Environment wrapped in vectorization wrapper.
+        config: PPO configuration specifying the number of actors.
         key: PRNG key used for reset and action sampling.
+        episode_length: Number of steps to run in the evaluation trajectory.
 
     Returns:
         Reward totals per parallel environment with shape
         ``(config.n_actors,)``.
     """
-    model: PPOModel | SACPolicy = nnx.merge(
-        train_state.model_def, train_state.model_state
-    )
 
-    def _scan_eval_transition(
-        carry: tuple[State, jax.Array],
+    def _eval_transition(
+        observation: jax.Array,
+        terminated: jax.Array,
         key: jax.Array,
-    ) -> tuple[tuple[State, jax.Array], jax.Array]:
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
         """Performs a transition during evaluation; rewards are masked after done."""
-        env_state, terminated = carry
-        a_mean, a_log_std = model.get_policy(env_state.obs)
-        action = a_mean + jnp.exp(a_log_std) * jax.random.normal(
-            key, shape=a_mean.shape
-        )
-        next_env_state = env_def.step(env_state, jnp.tanh(action))
-        step_reward = next_env_state.reward * jnp.logical_not(terminated)
-        terminated = jnp.logical_or(terminated, next_env_state.done)
-        return (next_env_state, terminated), step_reward
+        policy_logits = model.get_policy_logits(observation)
+        action = jax.random.categorical(key, policy_logits)
+        next_observation, reward, termination, truncation = env.step(action)
+        step_reward = reward * jnp.logical_not(terminated)
+        done = jnp.logical_or(termination, truncation)
+        terminated = jnp.logical_or(terminated, done)
+        if jnp.any(done):
+            next_observation = env.reset(options={"reset_mask": np.asarray(done)})
+        return next_observation, terminated, step_reward
 
-    keys = jax.random.split(key, num=config.n_actors + 1)
-    key, reset_keys = keys[0], keys[1:]
-    env_state = env_def.reset(reset_keys)
-    keys = jax.random.split(key, num=env_def.config.episode_length)
-    (_env_state, _terminated), rewards = jax.lax.scan(
-        _scan_eval_transition,
-        (env_state, jnp.zeros((config.n_actors,), dtype=bool)),
-        keys,
-    )
-    return jnp.sum(rewards, axis=0)
+    observation = env.reset()
+    terminated = jnp.zeros((config.n_actors,), dtype=jnp.bool_)
+    keys = jax.random.split(key, num=episode_length)
+    eval_rewards = []
+    for k in keys:
+        observation, terminated, rewards = _eval_transition(
+            observation, terminated, key=k
+        )
+        eval_rewards.append(rewards)
+    return jnp.sum(jnp.stack(eval_rewards), axis=0)

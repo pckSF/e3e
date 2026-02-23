@@ -82,15 +82,13 @@ def get_config[ConfigT](
     Args:
         config_file: Path to the JSON configuration file.
         create_config: A callable that creates the config object from keyword
-            arguments (e.g., ``ppo.defaults.create_config`` or
-            ``sac.defaults.create_config``).
+            arguments (e.g., ``create_ppo_config`` or ``create_appo_config``).
         seed: Optional seed value that overrides the seed in the JSON file.
             Useful for running multiple experiments with different seeds.
         with_hash: If ``True``, also returns an MD5 hash of the config data.
 
     Returns:
-        The config object (``PPOConfig`` or ``SACConfig``), or a tuple of
-        (config, hash) if ``with_hash=True``.
+        The config object, or a tuple of (config, hash) if ``with_hash=True``.
     """
     with open(config_file, "r") as file:
         config_data = json.load(file)

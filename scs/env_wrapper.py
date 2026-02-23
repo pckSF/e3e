@@ -1,246 +1,102 @@
+"""Wrapper for vectorized Gymnasium environments.
+
+This module provides a thin wrapper around Gymnasium's vectorized environments
+that converts observations and rewards to JAX arrays. The wrapper uses `Any` typing
+for the underlying environment because Gymnasium's type hierarchy is inconsistent:
+`gym.make_vec()` returns `VectorEnv` but useful attributes like `envs`, `get_attr`,
+and `call` are only defined on concrete subclasses like `SyncVectorEnv`.
+"""
+
 from __future__ import annotations
 
-from typing import (
-    TYPE_CHECKING,
-)
+from typing import TYPE_CHECKING, Any
 
-from flax import struct
 import jax
 import jax.numpy as jnp
-
-from mujoco_playground import MjxEnv
+import numpy as np
 
 if TYPE_CHECKING:
-    from ml_collections import ConfigDict
-    import mujoco
-    from mujoco import mjx
-
-    from mujoco_playground import State
-    from scs.ppo.agent_config import PPOConfig
-    from scs.sac.agent_config import SACConfig
+    from gymnasium.core import RenderFrame
 
 
-@struct.dataclass
-class NormalizeObservationState:
-    count: int
-    mean: jax.Array
-    std: jax.Array
-    variance_sum: jax.Array
+class JNPWrapper:
+    """Wrapper for vectorized Gymnasium environments that converts to JAX arrays."""
 
+    def __init__(self, env: Any) -> None:
+        self._env = env
 
-def create_normalizer(n_features: int) -> NormalizeObservationState:
-    """Create a new observation normalizer with default initial values."""
-    return NormalizeObservationState(
-        count=0,
-        mean=jnp.zeros((n_features,)),
-        std=jnp.ones((n_features,)),
-        variance_sum=jnp.zeros((n_features,)),
-    )
+    @property
+    def observation_shape(self) -> tuple[int, ...]:
+        """Batched observation shape: (num_envs, obs_dim)."""
+        return self._env.observation_space.shape
 
+    @property
+    def n_observation_features(self) -> int:
+        """Number of observation features (single env)."""
+        return int(self._env.envs[0].observation_space.shape[0])
 
-def update_normalizer(
-    normalizer: NormalizeObservationState,
-    observation: jax.Array,
-    max_std_value: float,
-    min_std_value: float,
-) -> NormalizeObservationState:
-    """Updates the normalizer state with Welford's algorithm and computes std.
+    @property
+    def action_shape(self) -> tuple[int, ...]:
+        """Batched action shape."""
+        return self._env.action_space.shape
 
-    Note:
-        Maybe use exponential moving average to improve numerical stability?
-    """
-    new_count = normalizer.count + observation.shape[0]
-    delta_obs_mean = observation - normalizer.mean
-    new_mean = normalizer.mean + jnp.sum(delta_obs_mean, axis=0) / new_count
-    delta_obs_new_mean = observation - new_mean
-    new_variance_sum = normalizer.variance_sum + jnp.sum(
-        delta_obs_mean * delta_obs_new_mean, axis=0
-    )
-    std = jnp.sqrt(new_variance_sum / jnp.maximum(new_count - 1, 1))
-    std = jnp.clip(std, a_min=min_std_value, a_max=max_std_value)
-    return NormalizeObservationState(
-        count=new_count,
-        mean=new_mean,
-        std=std,
-        variance_sum=new_variance_sum,
-    )
+    @property
+    def n_action_features(self) -> int:
+        """Number of action features (single env)."""
+        action_space = self._env.envs[0].action_space
+        if hasattr(action_space, "n"):  # Discrete
+            return int(action_space.n)
+        return int(action_space.shape[0])  # Box/continuous
 
+    @property
+    def n_actions(self) -> int:
+        """Alias for n_action_features for backward compatibility."""
+        return self.n_action_features
 
-def normalize(
-    normalizer: NormalizeObservationState,
-    env_state: State,
-    max_abs_value: float,
-) -> State:
-    """Apply z-score normalization to the observations in the given state.
+    @property
+    def np_random_seed(self) -> tuple[int, ...]:
+        """Returns a tuple of np random seeds for the wrapped envs."""
+        return self._env.get_attr("np_random")
 
-    Returns:
-        A new state with normalized (and optionally clipped) observations.
-    """
-    normalized_obs = (env_state.obs - normalizer.mean) / normalizer.std
-    if max_abs_value > 0.0:
-        normalized_obs = jnp.clip(normalized_obs, -max_abs_value, max_abs_value)
-    return env_state.replace(obs=normalized_obs)
+    @property
+    def np_random(self) -> tuple[np.random.Generator, ...]:
+        """Returns a tuple of the numpy random number generators for the wrapped
+        envs.
+        """
+        return self._env.get_attr("np_random")
 
+    def step(
+        self, action: jax.Array
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+        next_obs, reward, terminated, truncated, _info = self._env.step(
+            np.asarray(action)
+        )
+        return (
+            jnp.asarray(next_obs),
+            jnp.asarray(reward),
+            jnp.asarray(terminated),
+            jnp.asarray(truncated),
+        )
 
-class EnvTrainingWrapper(MjxEnv):
-    """Wraps an environment definition for vectorized execution, episode
-    truncation, and normalization.
-
-    Applies ``jax.vmap`` to ``reset`` and ``step`` for batched execution, tracks
-    episode steps, and triggers resets when the episode length limit is reached.
-    Can also apply running z-score normalization to observations if the respective
-    flag is set.
-    """
-
-    def __init__(
+    def reset(
         self,
-        env_def: MjxEnv,
-        env_config: ConfigDict,
-        agent_config: PPOConfig | SACConfig,
-    ) -> None:
-        """Initialize the training wrapper.
+        seed: int | list[int | None] | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> jax.Array:
+        obs, _info = self._env.reset(seed=seed, options=options)
+        return jnp.asarray(obs)
 
-        Args:
-            env_def: The underlying MJX environment to wrap.
-            env_config: Configuration containing ``episode_length`` and other
-                environment parameters.
-            agent_config: Configuration containing normalization parameters.
-        """
-        self._env_def = env_def
-        self.config = env_config
-        self._normalize_observations = agent_config.normalize_observations
-        self.max_std_value = agent_config.max_std_value
-        self.min_std_value = agent_config.min_std_value
-        self.max_obs_abs_value = agent_config.max_obs_abs_value
+    def call(self, name: str, *args: Any, **kwargs: Any) -> tuple[Any, ...]:
+        return self._env.call(name, *args, **kwargs)
 
-    def reset(self, key: jax.Array) -> State:
-        """Resets the environment for a batch of keys and initializes step counters.
+    def render(self) -> tuple[RenderFrame, ...] | None:
+        return self._env.render()
 
-        Optionally initializes observation normalizer.
-        """
-        env_state = jax.vmap(self._env_def.reset)(key)
-        env_state.info["step"] = jnp.zeros(key.shape[0], dtype=jnp.uint32)
-        env_state.info["truncated"] = jnp.zeros(key.shape[0], dtype=bool)
-        if self._normalize_observations:
-            env_state.info["obs_normalizer"] = create_normalizer(
-                env_state.obs.shape[-1]
-            )
-        return env_state
+    def get_attr(self, name: str) -> tuple[Any, ...]:
+        return self._env.get_attr(name)
 
-    def get_initial_state(self, key: jax.Array) -> State:
-        """Returns an initial state for each environment in the batch.
+    def set_attr(self, name: str, values: list[Any] | tuple[Any, ...]) -> None:
+        self._env.set_attr(name, values)
 
-        Removes the environment state statistics stored in the the ``.info`` dict
-        that are not being reset upon environment resets. These are metrics that
-        are traced across all environments and not batch specific. For example,
-        the observation normalizer state is preserved across resets, whereas the
-        step counter is reset to zero.
-        """
-        env_state = self.reset(key)
-        if self._normalize_observations:
-            del env_state.info["obs_normalizer"]
-        return env_state
-
-    def conditional_reset(self, env_state: State, initial_state: State) -> State:
-        """Resets terminated or truncated episodes to the provided initial state."""
-        reset_mask = jnp.logical_or(env_state.done, env_state.info["truncated"])
-
-        def _do_reset(current_env_state: State) -> State:
-            """Applies the reset to the environment state.
-
-            Optionally ensures that the observation normalizer state is preserved
-            across resets. The ``normalizer state`` can safely be removed from the
-            ``current_env_state`` since the ``initial_state`` does not contain it.
-
-            Note:
-                This version with the ``dict`` operations seems to be as fast as
-                using a shape check to skip non-batched leaves in ``_masked_replace``
-                with (``if reset_mask.shape[0] != current_leaf.shape[0]``) and
-                mapping ``_masked_replace`` across all leafs.
-            """
-            if self._normalize_observations:
-                obs_normalizer_state = current_env_state.info.pop("obs_normalizer")
-
-            def _masked_replace(
-                current_leaf: jax.Array, reset_leaf: jax.Array
-            ) -> State:
-                """Selectively replaces values in a leaf of the state tree.
-
-                The ``reset_mask`` is reshaped to match the dimensions of the leaf
-                array to correctly broadcast the mask across its dimensions.
-                """
-                leaf_mask = reset_mask.reshape(
-                    reset_mask.shape + (1,) * (current_leaf.ndim - reset_mask.ndim)
-                )
-                return jnp.where(leaf_mask, reset_leaf, current_leaf)
-
-            current_env_state = jax.tree.map(
-                _masked_replace, current_env_state, initial_state
-            )
-            if self._normalize_observations:
-                current_env_state.info["obs_normalizer"] = obs_normalizer_state
-
-            return current_env_state
-
-        return jax.lax.cond(
-            jnp.any(reset_mask),
-            _do_reset,
-            lambda current_env_state: current_env_state,
-            env_state,
-        )
-
-    def step(self, env_state: State, action: jax.Array) -> State:
-        """Steps the environment with a batch of actions.
-
-        Keeps track of episode step counts and sets truncation flags when the
-        episode length limit is reached.
-
-        Optionally normalizes observations and updates the normalizer statistics.
-        """
-        if self._normalize_observations:
-            obs_normalizer = env_state.info.pop("obs_normalizer")
-        env_state = jax.vmap(self._env_def.step)(env_state, action)
-        env_state.info["step"] += 1
-        env_state.info["truncated"] = (
-            env_state.info["step"] >= self.config.episode_length
-        )
-        if self._normalize_observations:
-            current_observations = env_state.obs
-            env_state = normalize(obs_normalizer, env_state, self.max_obs_abs_value)
-            env_state.info["obs_normalizer"] = update_normalizer(
-                obs_normalizer,
-                current_observations,
-                self.max_std_value,
-                self.min_std_value,
-            )
-        return env_state
-
-    @property
-    def observation_size(self) -> int:
-        """Return the dimensionality of the observation space."""
-        return self._env_def.observation_size
-
-    @property
-    def action_size(self) -> int:
-        """Return the dimensionality of the action space."""
-        return self._env_def.action_size
-
-    @property
-    def unwrapped(self) -> MjxEnv:
-        """Return the original unwrapped environment."""
-        return self._env_def
-
-    @property
-    def mj_model(self) -> mujoco.MjModel:
-        """Returns the underlying MuJoCo model."""
-        return self._env_def.mj_model
-
-    @property
-    def mjx_model(self) -> mjx.Model:
-        """Returns the underlying MJX model."""
-        return self._env_def.mjx_model
-
-    @property
-    def xml_path(self) -> str:
-        """Return the path to the environment's MuJoCo XML model file."""
-        return self._env_def.xml_path
+    def close_extras(self, **kwargs: Any) -> None:
+        self._env.close_extras(**kwargs)

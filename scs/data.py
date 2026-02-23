@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
+    from scs.appo.agent_config import APPOConfig
     from scs.ppo.agent_config import PPOConfig
 
 
@@ -20,21 +21,19 @@ class TrajectoryData:
     Fields that are scanned over axis 0:
 
     - ``observations``:         ``[T, N, obs_dim]``
-    - ``actions``:              ``[T, N, action_dim]``
-    - ``action_log_densities``: ``[T, N, action_dim]``
+    - ``actions``:              ``[T, N]`` (discrete action indices)
+    - ``policy_logits``:        ``[T, N, n_actions]``
     - ``rewards``:              ``[T, N]``
     - ``next_observations``:    ``[T, N, obs_dim]``
     - ``terminals``:            ``[T, N]``
-    - ``truncations``:          ``[T, N]``
     """
 
     observations: jax.Array
     actions: jax.Array
-    action_log_densities: jax.Array
+    policy_logits: jax.Array
     rewards: jax.Array
     next_observations: jax.Array
     terminals: jax.Array
-    truncations: jax.Array
 
     @classmethod
     def load(cls, path: str) -> TrajectoryData:
@@ -48,11 +47,10 @@ class TrajectoryData:
         data_dict = {
             "observations": self.observations,
             "actions": self.actions,
-            "action_log_densities": self.action_log_densities,
+            "policy_logits": self.policy_logits,
             "rewards": self.rewards,
             "next_observations": self.next_observations,
             "terminals": self.terminals,
-            "truncations": self.truncations,
         }
         with open(path, "wb") as f:
             pickle.dump(data_dict, f)
@@ -67,7 +65,7 @@ def get_batch_from_trajectory(
 
 def separate_trajectory_rollouts(
     data: TrajectoryData,
-    config: PPOConfig,
+    config: PPOConfig | APPOConfig,
 ) -> TrajectoryData:
     """Reshapes trajectory data into ``[n_rollouts, n_steps, ...]`` format.
 

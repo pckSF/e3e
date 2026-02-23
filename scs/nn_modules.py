@@ -11,19 +11,20 @@ import jax.numpy as jnp
 import optax
 
 if TYPE_CHECKING:
+    from scs.appo.agent_config import APPOConfig
     from scs.ppo.agent_config import PPOConfig
-    from scs.sac.agent_config import SACConfig
 
 
 MODEL_CONFIG_POSTFIX: dict[str, str] = {
     "PPOModel": "policyvalue",
+    "APPOModel": "policyvalue",
     "SACPolicy": "policy",
     "SACQvalue": "qvalue",
 }
 
 
 def get_optimizer(
-    config: PPOConfig | SACConfig, model: nnx.Module
+    config: PPOConfig | APPOConfig, model: nnx.Module
 ) -> optax.GradientTransformation:
     """Creates an optimizer based on the configuration and model class name.
 
