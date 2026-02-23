@@ -1,6 +1,6 @@
 {
     "env_name": "LunarLander-v3",
-    "lr_policyvalue": 3e-4,
+    "lr_policyvalue": 2.5e-4,
     "lr_schedule_policyvalue": "constant",
     "lr_end_value_policyvalue": 0.0,
     "lr_decay_policyvalue": 0.9995,
@@ -19,13 +19,13 @@
     "batch_size": 1024,
     "n_epochs_per_rollout": 16,
     "value_loss_coefficient": 0.5,
-    "evaluation_frequency": 1,
+    "evaluation_frequency": 10,
     "normalize_advantages": true,
     "normalize_observations": false,
     "max_std_value": 1e6,
     "min_std_value": 1e-6,
     "max_obs_abs_value": 0.0,
     "reward_scaling": 1.0,
-    "max_training_loops": 25,
+    "max_training_loops": 100,
     "seed": 0
 }

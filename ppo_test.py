@@ -75,7 +75,9 @@ def main() -> None:
         # Setup Environment
         env = JNPWrapper(
             gym.make_vec(
-                "CartPole-v1", num_envs=agent_config.n_actors, vectorization_mode="sync"
+                agent_config.env_name,
+                num_envs=agent_config.n_actors,
+                vectorization_mode="sync",
             ),
         )
 
