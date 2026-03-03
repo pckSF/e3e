@@ -1,0 +1,38 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/python
+{
+	// Container system settings
+	"name": "e3e-dev",
+	"dockerComposeFile": ["../docker-compose.yaml"],
+	"runServices": ["dev"],
+	"service": "dev",
+	"workspaceFolder": "/app",
+	"remoteUser": "devuser",
+	"shutdownAction": "stopCompose",
+	"features": {
+		"ghcr.io/devcontainer-community/devcontainer-features/atuin.sh:1": {}
+	},
+
+	// Use 'postCreateCommand' to run commands after the container is created.
+	"postCreateCommand": "pre-commit install",
+
+	// Configure tool-specific properties.
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"ms-python.debugpy",
+				"ms-python.vscode-python-envs",
+				"mechatroner.rainbow-csv",
+				"tamasfe.even-better-toml"
+			],
+			"settings": {
+				"python.defaultInterpreterPath": "/home/devuser/.venv/bin/python",
+				"dotfiles.repository": "git@github.com:pckSF/dotfiles.git",
+				"dotfiles.targetPath": "~/.dotfiles",
+				"dotfiles.installCommand": "setup"
+			}
+		}
+	}
+}

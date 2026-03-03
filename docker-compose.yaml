@@ -1,0 +1,45 @@
+services:
+  dev:
+    build:
+      context: .
+      target: dev
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
+    image: e3e-dev:latest
+    container_name: e3e-dev
+    hostname: e3e-dev
+    security_opt:           #
+      - seccomp=unconfined  #
+    ipc: host               # These settings are okay to use in a local devcontainer
+    volumes:
+      - .:/app
+    working_dir: /app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  runp:
+    build:
+      context: .
+      target: run
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
+    image: e3e-run:latest
+    container_name: e3e-run
+    hostname: e3e-run
+    volumes:
+      - .:/app
+    working_dir: /app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
