@@ -14,7 +14,7 @@ from scs.encodings import (
     first_encoding,
 )
 from scs.gen_data import get_bimodal_function, get_normal_function
-from scs.utils import discretize
+from scs.utils import batch_means, discretize
 
 if TYPE_CHECKING:
     from typing import Callable
@@ -145,14 +145,10 @@ if __name__ == "__main__":
     n_dist = len(DISTRIBUTIONS)
     points = jnp.linspace(X_RANGE[0], X_RANGE[1], 21)
 
-    # 3 rows: approx_distance | approx_distance_weighted | comparison table
-    fig = plt.figure(figsize=(6 * n_dist, 17))
-    axes_row1 = [fig.add_subplot(3, n_dist, i + 1) for i in range(n_dist)]
-    axes_row2 = [fig.add_subplot(3, n_dist, n_dist + i + 1) for i in range(n_dist)]
-    ax_table = fig.add_subplot(3, 1, 3)
-    ax_table.axis("off")
-
-    table_rows: list[list[str]] = []
+    # 2 rows: approx_distance | approx_distance_weighted
+    fig = plt.figure(figsize=(6 * n_dist, 11))
+    axes_row1 = [fig.add_subplot(2, n_dist, i + 1) for i in range(n_dist)]
+    axes_row2 = [fig.add_subplot(2, n_dist, n_dist + i + 1) for i in range(n_dist)]
 
     for col, (name, config) in enumerate(DISTRIBUTIONS.items()):
         data_key, key = jax.random.split(key)
@@ -162,11 +158,23 @@ if __name__ == "__main__":
         print(f"[{name}] Estimated parameters: {params}")
 
         rolling_stats, _ = first_encoding(data)
+        m, u_m, l_m, u_count, l_count = batch_means(data)
         print(
             f"[{name}] Rolling stats — mean: {rolling_stats.mean:.4f}, "
-            f"l_mean: {rolling_stats.l_mean:.4f}, u_mean: {rolling_stats.u_mean:.4f}, "
-            f"count l_mean: {rolling_stats.l_count}, "
-            f"count u_mean: {rolling_stats.u_count}"
+            f"l_mean: {rolling_stats.l_mean:.4f} (n={int(rolling_stats.l_count)}), "
+            f"u_mean: {rolling_stats.u_mean:.4f} (n={int(rolling_stats.u_count)})"
+        )
+        print(
+            f"[{name}] Batch stats   — mean: {m:.4f}, "
+            f"l_mean: {l_m:.4f} (n={l_count}), "
+            f"u_mean: {u_m:.4f} (n={u_count})"
+        )
+        print(
+            f"[{name}] Δ mean: {(float(rolling_stats.mean) - m):.4f}, "
+            f"Δ l_mean: {(float(rolling_stats.l_mean) - l_m):.4f}, "
+            f"Δ u_mean: {(float(rolling_stats.u_mean) - u_m):.4f}, "
+            f"Δ l_count: {(int(rolling_stats.l_count) - l_count)}, "
+            f"Δ u_count: {(int(rolling_stats.u_count) - u_count)}"
         )
 
         density_fns: dict[str, Callable[[jax.Array], jax.Array]] = {
@@ -182,7 +190,7 @@ if __name__ == "__main__":
         _add_rolling_markers(ax1, rolling_stats)
         ax1.legend(fontsize=7)
 
-        # Row 2: approx_distance_weighted ─
+        # Row 2: approx_distance_weighted
         ax2 = axes_row2[col]
         plot_distribution(density_fns, x_range=X_RANGE, data=data, bins=BINS, ax=ax2)
         ax2.set_title(f"{name}\napprox_distance_weighted")
@@ -197,20 +205,6 @@ if __name__ == "__main__":
         mae_adw = float(jnp.mean(jnp.abs(mean_dist - adw)))
         print(f"[{name}] MAE approx_distance:          {mae_ad:.4f}")
         print(f"[{name}] MAE approx_distance_weighted: {mae_adw:.4f}")
-        table_rows.append([name, f"{mae_ad:.4f}", f"{mae_adw:.4f}"])
-
-    # Row 3: comparison table
-    col_labels = ["Distribution", "MAE approx_distance", "MAE approx_distance_weighted"]
-    table = ax_table.table(
-        cellText=table_rows,
-        colLabels=col_labels,
-        loc="center",
-        cellLoc="center",
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(11)
-    table.scale(1, 2)
-    ax_table.set_title("Mean Absolute Error vs. mean_distance", pad=12)
 
     plt.tight_layout()
     plt.show()

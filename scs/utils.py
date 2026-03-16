@@ -94,3 +94,28 @@ def discretize(
     indices = jnp.clip(jnp.digitize(x, bin_edges) - 1, 0, bins - 1)
     counts = jnp.bincount(indices, length=bins)
     return bin_centers, counts
+
+
+def batch_means(
+    data: jax.Array,
+) -> tuple[float, float, float, int, int]:
+    """Compute exact mean, upper conditional mean, and lower conditional mean.
+
+    Splits ``data`` at its own mean: values strictly above the mean contribute
+    to ``u_mean`` and the rest to ``l_mean``.  Also returns the element counts
+    for each partition so results can be directly compared against the counts
+    tracked by ``RunningStats``.
+
+    Args:
+        data: 1-D JAX array of observed values.
+
+    Returns:
+        A tuple ``(mean, u_mean, l_mean, u_count, l_count)``.
+    """
+    m = jnp.mean(data)
+    above = data > m
+    u_count = int(jnp.sum(above))
+    l_count = int(data.shape[0]) - u_count
+    u_m = float(jnp.mean(data[above]))
+    l_m = float(jnp.mean(data[~above]))
+    return float(m), u_m, l_m, u_count, l_count
