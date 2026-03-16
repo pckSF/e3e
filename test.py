@@ -7,7 +7,12 @@ import jax.numpy as jnp
 from jax.scipy import stats
 import matplotlib.pyplot as plt
 
-from scs.encodings import approx_distance, estimated_normal_distribution, first_encoding
+from scs.encodings import (
+    approx_distance,
+    approx_distance_weighted,
+    estimated_normal_distribution,
+    first_encoding,
+)
 from scs.gen_data import get_bimodal_function, get_normal_function
 from scs.utils import discretize
 
@@ -99,14 +104,57 @@ def plot_distribution(
     return ax
 
 
+def _add_rolling_markers(ax: plt.Axes, rolling_stats) -> None:
+    ax.axvline(
+        x=float(rolling_stats.mean),
+        linestyle="--",
+        linewidth=1.5,
+        label="Rolling Mean",
+    )
+    trans = ax.get_xaxis_transform()
+    for xval, char, lbl in [
+        (float(rolling_stats.l_mean), "(", "l_mean"),
+        (float(rolling_stats.u_mean), ")", "u_mean"),
+    ]:
+        ax.axvline(x=xval, linestyle=":", linewidth=1, alpha=0.6)
+        ax.text(
+            xval,
+            -0.06,
+            char,
+            transform=trans,
+            ha="center",
+            va="top",
+            fontsize=14,
+            clip_on=False,
+        )
+        ax.text(
+            xval,
+            -0.12,
+            lbl,
+            transform=trans,
+            ha="center",
+            va="top",
+            fontsize=7,
+            clip_on=False,
+            color="gray",
+        )
+
+
 if __name__ == "__main__":
     key = jax.random.PRNGKey(0)
     n_dist = len(DISTRIBUTIONS)
-    fig, axes = plt.subplots(1, n_dist, figsize=(6 * n_dist, 5))
-    if n_dist == 1:
-        axes = [axes]
+    points = jnp.linspace(X_RANGE[0], X_RANGE[1], 21)
 
-    for ax, (name, config) in zip(axes, DISTRIBUTIONS.items()):
+    # 3 rows: approx_distance | approx_distance_weighted | comparison table
+    fig = plt.figure(figsize=(6 * n_dist, 17))
+    axes_row1 = [fig.add_subplot(3, n_dist, i + 1) for i in range(n_dist)]
+    axes_row2 = [fig.add_subplot(3, n_dist, n_dist + i + 1) for i in range(n_dist)]
+    ax_table = fig.add_subplot(3, 1, 3)
+    ax_table.axis("off")
+
+    table_rows: list[list[str]] = []
+
+    for col, (name, config) in enumerate(DISTRIBUTIONS.items()):
         data_key, key = jax.random.split(key)
         data = config["sampler"](data_key, n=N_SAMPLES)
 
@@ -127,52 +175,42 @@ if __name__ == "__main__":
         if config["true_density"] is not None:
             density_fns["True Density"] = config["true_density"]
 
-        plot_distribution(density_fns, x_range=X_RANGE, data=data, bins=BINS, ax=ax)
-        ax.set_title(name)
+        # Row 1: approx_distance
+        ax1 = axes_row1[col]
+        plot_distribution(density_fns, x_range=X_RANGE, data=data, bins=BINS, ax=ax1)
+        ax1.set_title(f"{name}\napprox_distance")
+        _add_rolling_markers(ax1, rolling_stats)
+        ax1.legend(fontsize=7)
 
-        ax.axvline(
-            x=float(rolling_stats.mean),
-            linestyle="--",
-            linewidth=1.5,
-            label="Rolling Mean",
-        )
+        # Row 2: approx_distance_weighted ─
+        ax2 = axes_row2[col]
+        plot_distribution(density_fns, x_range=X_RANGE, data=data, bins=BINS, ax=ax2)
+        ax2.set_title(f"{name}\napprox_distance_weighted")
+        _add_rolling_markers(ax2, rolling_stats)
+        ax2.legend(fontsize=7)
 
-        trans = ax.get_xaxis_transform()
-        for xval, char, lbl in [
-            (float(rolling_stats.l_mean), "(", "l_mean"),
-            (float(rolling_stats.u_mean), ")", "u_mean"),
-        ]:
-            ax.axvline(x=xval, linestyle=":", linewidth=1, alpha=0.6)
-            ax.text(
-                xval,
-                -0.06,
-                char,
-                transform=trans,
-                ha="center",
-                va="top",
-                fontsize=14,
-                clip_on=False,
-            )
-            ax.text(
-                xval,
-                -0.12,
-                lbl,
-                transform=trans,
-                ha="center",
-                va="top",
-                fontsize=7,
-                clip_on=False,
-                color="gray",
-            )
-
-        ax.legend()
-
-        points = jnp.linspace(X_RANGE[0], X_RANGE[1], 21)
+        # Distance metrics
         mean_dist = mean_distance(points, data)
-        approx_dist = approx_distance(points, rolling_stats)
-        mae = jnp.mean(jnp.abs(mean_dist - approx_dist))
-        print(f"[{name}] Mean distance vs Approx distance: {mean_dist / approx_dist}")
-        print(f"[{name}] MAE(mean_dist, approx_dist): {mae:.4f}")
+        ad = approx_distance(points, rolling_stats)
+        adw = approx_distance_weighted(points, rolling_stats)
+        mae_ad = float(jnp.mean(jnp.abs(mean_dist - ad)))
+        mae_adw = float(jnp.mean(jnp.abs(mean_dist - adw)))
+        print(f"[{name}] MAE approx_distance:          {mae_ad:.4f}")
+        print(f"[{name}] MAE approx_distance_weighted: {mae_adw:.4f}")
+        table_rows.append([name, f"{mae_ad:.4f}", f"{mae_adw:.4f}"])
+
+    # Row 3: comparison table
+    col_labels = ["Distribution", "MAE approx_distance", "MAE approx_distance_weighted"]
+    table = ax_table.table(
+        cellText=table_rows,
+        colLabels=col_labels,
+        loc="center",
+        cellLoc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(11)
+    table.scale(1, 2)
+    ax_table.set_title("Mean Absolute Error vs. mean_distance", pad=12)
 
     plt.tight_layout()
     plt.show()

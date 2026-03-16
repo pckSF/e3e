@@ -39,6 +39,13 @@ def approx_distance(x: jax.Array, stats: RunningStats) -> jax.Array:
     return (distance_mean + distance_u + distance_l) / 3.0
 
 
+def approx_distance_weighted(x: jax.Array, stats: RunningStats) -> jax.Array:
+    distance_mean = jnp.abs(x - stats.mean) * stats.count
+    distance_u = jnp.abs(x - stats.u_mean) * stats.u_count
+    distance_l = jnp.abs(x - stats.l_mean) * stats.l_count
+    return (distance_mean + distance_u + distance_l) / (2 * stats.count)
+
+
 def first_encoding(x: jax.Array) -> jax.Array:
     """Compute running statistics over a 1-D sequence via Welford's algorithm.
 
