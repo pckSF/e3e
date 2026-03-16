@@ -9,6 +9,7 @@ import jax.numpy as jnp
 class RunningStats:
     mean: jax.Array
     std: jax.Array
+    variance: jax.Array
     u_mean: jax.Array
     l_mean: jax.Array
     count: int
@@ -20,6 +21,7 @@ def first_encoding(x: jax.Array) -> jax.Array:
     stats = RunningStats(
         mean=jnp.zeros(()),
         std=jnp.zeros(()),
+        variance=jnp.zeros(()),
         u_mean=jnp.zeros(()),
         l_mean=jnp.zeros(()),
         count=0,
@@ -32,9 +34,8 @@ def first_encoding(x: jax.Array) -> jax.Array:
     ) -> tuple[RunningStats, RunningStats]:
         cented_value = new_value - carry.mean
         new_mean = carry.mean + cented_value / (carry.count + 1)
-        new_std = jnp.sqrt(
-            (carry.std + cented_value * (new_value - new_mean)) / (carry.count + 1e-8)
-        )
+        new_variance = carry.variance + cented_value * (new_value - new_mean)
+        new_std = jnp.sqrt(new_variance / (carry.count + 1e-8))
 
         value_above_mean = new_value > carry.mean
         new_u_mean = carry.u_mean + value_above_mean * (new_value - carry.u_mean) / (
@@ -49,6 +50,7 @@ def first_encoding(x: jax.Array) -> jax.Array:
         new_stats = RunningStats(
             mean=new_mean,
             std=new_std,
+            variance=new_variance,
             u_mean=new_u_mean,
             l_mean=new_l_mean,
             count=carry.count + 1,
