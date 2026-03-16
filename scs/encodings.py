@@ -17,7 +17,31 @@ class RunningStats:
     l_count: int
 
 
+def approx_distance(x: jax.Array, stats: RunningStats) -> jax.Array:
+    distance_mean = jnp.abs(x - stats.mean)
+    distance_u = jnp.abs(x - stats.u_mean)
+    distance_l = jnp.abs(x - stats.l_mean)
+    return (distance_mean + distance_u + distance_l) / 3.0
+
+
 def first_encoding(x: jax.Array) -> jax.Array:
+    """Compute running statistics over a 1-D sequence via Welford's algorithm.
+
+    Scans over each element of ``x`` in order, maintaining a ``RunningStats``
+    carry that accumulates the running mean, variance, standard deviation, and
+    upper/lower conditional means (i.e. the mean of values observed above and
+    below the current running mean, respectively).  All intermediate states are
+    stacked and returned alongside the final state.
+
+    Args:
+        x: A 1-D JAX array of scalar values to encode.
+
+    Returns:
+        A tuple ``(final_stats, all_stats)`` where ``final_stats`` is the
+        ``RunningStats`` after processing the full sequence and ``all_stats``
+        is a ``RunningStats`` whose leaves are arrays of shape ``(len(x),)``
+        holding the running statistics recorded after each step.
+    """
     stats = RunningStats(
         mean=jnp.zeros(()),
         std=jnp.zeros(()),
