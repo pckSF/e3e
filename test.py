@@ -13,7 +13,11 @@ from scs.encodings import (
     estimated_normal_distribution,
     first_encoding,
 )
-from scs.gen_data import get_bimodal_function, get_normal_function
+from scs.gen_data import (
+    get_bimodal_function,
+    get_multimodal_function,
+    get_normal_function,
+)
 from scs.utils import batch_means, discretize
 
 if TYPE_CHECKING:
@@ -56,6 +60,30 @@ DISTRIBUTIONS: dict[str, dict[str, Callable[[jax.Array], jax.Array]]] = {
         "true_density": lambda x: (
             0.8 * stats.norm.pdf(x, loc=-3.0, scale=1.0)
             + 0.2 * stats.norm.pdf(x, loc=3.0, scale=1.0)
+        ),
+    },
+    "trimodal 1/3": {
+        "sampler": get_multimodal_function(
+            means=[-4.0, 0.0, 4.0],
+            stds=[1.0, 1.0, 1.0],
+            weights=[1 / 3, 1 / 3, 1 / 3],
+        ),
+        "true_density": lambda x: (
+            (1 / 3) * stats.norm.pdf(x, loc=-4.0, scale=1.0)
+            + (1 / 3) * stats.norm.pdf(x, loc=0.0, scale=1.0)
+            + (1 / 3) * stats.norm.pdf(x, loc=4.0, scale=1.0)
+        ),
+    },
+    "trimodal skewed": {
+        "sampler": get_multimodal_function(
+            means=[-4.0, 0.0, 4.0],
+            stds=[1.0, 1.5, 0.8],
+            weights=[0.5, 0.3, 0.2],
+        ),
+        "true_density": lambda x: (
+            0.5 * stats.norm.pdf(x, loc=-4.0, scale=1.0)
+            + 0.3 * stats.norm.pdf(x, loc=0.0, scale=1.5)
+            + 0.2 * stats.norm.pdf(x, loc=4.0, scale=0.8)
         ),
     },
 }
@@ -145,10 +173,9 @@ if __name__ == "__main__":
     n_dist = len(DISTRIBUTIONS)
     points = jnp.linspace(X_RANGE[0], X_RANGE[1], 21)
 
-    # 2 rows: approx_distance | approx_distance_weighted
-    fig = plt.figure(figsize=(6 * n_dist, 11))
-    axes_row1 = [fig.add_subplot(2, n_dist, i + 1) for i in range(n_dist)]
-    axes_row2 = [fig.add_subplot(2, n_dist, n_dist + i + 1) for i in range(n_dist)]
+    fig, axes = plt.subplots(1, n_dist, figsize=(6 * n_dist, 5))
+    if n_dist == 1:
+        axes = [axes]
 
     for col, (name, config) in enumerate(DISTRIBUTIONS.items()):
         data_key, key = jax.random.split(key)
@@ -183,19 +210,11 @@ if __name__ == "__main__":
         if config["true_density"] is not None:
             density_fns["True Density"] = config["true_density"]
 
-        # Row 1: approx_distance
-        ax1 = axes_row1[col]
-        plot_distribution(density_fns, x_range=X_RANGE, data=data, bins=BINS, ax=ax1)
-        ax1.set_title(f"{name}\napprox_distance")
-        _add_rolling_markers(ax1, rolling_stats)
-        ax1.legend(fontsize=7)
-
-        # Row 2: approx_distance_weighted
-        ax2 = axes_row2[col]
-        plot_distribution(density_fns, x_range=X_RANGE, data=data, bins=BINS, ax=ax2)
-        ax2.set_title(f"{name}\napprox_distance_weighted")
-        _add_rolling_markers(ax2, rolling_stats)
-        ax2.legend(fontsize=7)
+        ax = axes[col]
+        plot_distribution(density_fns, x_range=X_RANGE, data=data, bins=BINS, ax=ax)
+        ax.set_title(name)
+        _add_rolling_markers(ax, rolling_stats)
+        ax.legend(fontsize=7)
 
         # Distance metrics
         mean_dist = mean_distance(points, data)

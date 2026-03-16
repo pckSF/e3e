@@ -45,10 +45,42 @@ def get_bimodal_function(
     """
 
     def random_bimodal(key: jax.Array, n: int = 1000) -> jax.Array:
-        k1, k2, k3 = jax.random.split(key, 3)
-        mask = jax.random.uniform(k1, shape=(n,)) < weight
-        s1 = mean1 + std1 * jax.random.normal(k2, shape=(n,))
-        s2 = mean2 + std2 * jax.random.normal(k3, shape=(n,))
+        keys = jax.random.split(key, 3)
+        mask = jax.random.uniform(keys[0], shape=(n,)) < weight
+        s1 = mean1 + std1 * jax.random.normal(keys[1], shape=(n,))
+        s2 = mean2 + std2 * jax.random.normal(keys[2], shape=(n,))
         return jnp.where(mask, s1, s2)
 
     return random_bimodal
+
+
+def get_multimodal_function(
+    means: list[float], stds: list[float], weights: list[float]
+) -> Callable[[jax.Array, int], jax.Array]:
+    """Return a sampler for an arbitrary K-component Gaussian mixture distribution.
+
+    Each call draws ``n`` samples by independently assigning each sample to one
+    of ``K`` normal components according to ``weights``, then drawing from that
+    component's normal distribution.
+
+    Args:
+        means: Mean of each Gaussian component.  Length determines ``K``.
+        stds: Standard deviation of each component.  Must have length ``K``.
+        weights: Mixing weights for each component.  Must have length ``K`` and
+            sum to 1.
+
+    Returns:
+        A callable ``(key, n=1000) -> jax.Array`` that draws ``n`` samples
+        from the mixture using the supplied JAX PRNG key.
+    """
+    means_arr = jnp.array(means)
+    stds_arr = jnp.array(stds)
+    weights_arr = jnp.array(weights)
+
+    def random_multimodal(key: jax.Array, n: int = 1000) -> jax.Array:
+        keys = jax.random.split(key, 2)
+        components = jax.random.choice(keys[0], a=len(means), shape=(n,), p=weights_arr)
+        z = jax.random.normal(keys[1], shape=(n,))
+        return means_arr[components] + stds_arr[components] * z
+
+    return random_multimodal
