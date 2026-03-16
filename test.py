@@ -35,6 +35,12 @@ def estimated_normal_distribution(
 
 
 def mean_distance(x: jax.Array, data: jax.Array) -> jax.Array:
+    """Compute the mean absolute distance from each query point to a dataset.
+
+    For every element in ``x``, calculates the average absolute difference
+    against all elements in ``data``, producing one distance value per query
+    point.
+    """
     if not isinstance(x, jax.Array):
         x = jnp.array([x])
     distances = jnp.abs(x[:, jnp.newaxis] - data[jnp.newaxis, :])

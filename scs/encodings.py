@@ -18,6 +18,15 @@ class RunningStats:
 
 
 def approx_distance(x: jax.Array, stats: RunningStats) -> jax.Array:
+    """Estimate the distance of ``x`` from the distribution described by ``stats``.
+
+    Computes the absolute distance from ``x`` to each of three reference
+    points — the overall running mean, the upper conditional mean (mean of
+    values above the running mean), and the lower conditional mean (mean of
+    values below the running mean) — then returns their average as a single
+    scalar approximation of how far ``x`` sits from the centre of the
+    observed distribution.
+    """
     distance_mean = jnp.abs(x - stats.mean)
     distance_u = jnp.abs(x - stats.u_mean)
     distance_l = jnp.abs(x - stats.l_mean)
