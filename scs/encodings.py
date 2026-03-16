@@ -40,10 +40,12 @@ def approx_distance(x: jax.Array, stats: RunningStats) -> jax.Array:
 
 
 def approx_distance_weighted(x: jax.Array, stats: RunningStats) -> jax.Array:
-    distance_mean = jnp.abs(x - stats.mean) * stats.count
-    distance_u = jnp.abs(x - stats.u_mean) * stats.u_count
-    distance_l = jnp.abs(x - stats.l_mean) * stats.l_count
-    return (distance_mean + distance_u + distance_l) / (2 * stats.count)
+    u_weight = stats.u_count / stats.count
+    l_weight = stats.l_count / stats.count
+    distance_mean = jnp.abs(x - stats.mean)
+    distance_u = jnp.abs(x - stats.u_mean) * u_weight
+    distance_l = jnp.abs(x - stats.l_mean) * l_weight
+    return (distance_mean + distance_u + distance_l) / 2.0
 
 
 def first_encoding(x: jax.Array) -> jax.Array:
