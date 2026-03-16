@@ -7,31 +7,54 @@ import jax.numpy as jnp
 from jax.scipy import stats
 import matplotlib.pyplot as plt
 
-from scs.encodings import approx_distance, first_encoding
+from scs.encodings import approx_distance, estimated_normal_distribution, first_encoding
+from scs.gen_data import get_bimodal_function, get_normal_function
+from scs.utils import discretize
 
 if TYPE_CHECKING:
     from typing import Callable
 
+################################################################################
+# Hyperparameters
+################################################################################
+N_SAMPLES: int = 10_000
+X_RANGE: tuple[int, int] = (-10, 10)
+BINS: int = 50
 
-def get_normal_function(
-    mean: float, std: float
-) -> Callable[[jax.Array, int], jax.Array]:
-    def random_normal(key: jax.Array, n=1000) -> jax.Array:
-        return mean + std * jax.random.normal(key, shape=(n,))
-
-    return random_normal
-
-
-def estimated_normal_distribution(
-    data: jax.Array,
-) -> tuple[Callable[[jax.Array], jax.Array], dict[str, float]]:
-    mean = jnp.mean(data)
-    std = jnp.std(data)
-
-    def density(x: jax.Array) -> jax.Array:
-        return stats.norm.pdf(x, loc=mean, scale=std)
-
-    return density, {"mean": mean, "std": std}
+DISTRIBUTIONS: dict[str, dict[str, Callable[[jax.Array], jax.Array]]] = {
+    "normal": {
+        "sampler": get_normal_function(mean=0.0, std=1.0),
+        "true_density": lambda x: stats.norm.pdf(x, loc=0.0, scale=1.0),
+    },
+    "bimodal w=0.5": {
+        "sampler": get_bimodal_function(
+            mean1=-3.0, std1=1.0, mean2=3.0, std2=1.0, weight=0.5
+        ),
+        "true_density": lambda x: (
+            0.5 * stats.norm.pdf(x, loc=-3.0, scale=1.0)
+            + 0.5 * stats.norm.pdf(x, loc=3.0, scale=1.0)
+        ),
+    },
+    "bimodal w=0.2": {
+        "sampler": get_bimodal_function(
+            mean1=-3.0, std1=1.0, mean2=3.0, std2=1.0, weight=0.2
+        ),
+        "true_density": lambda x: (
+            0.2 * stats.norm.pdf(x, loc=-3.0, scale=1.0)
+            + 0.8 * stats.norm.pdf(x, loc=3.0, scale=1.0)
+        ),
+    },
+    "bimodal w=0.8": {
+        "sampler": get_bimodal_function(
+            mean1=-3.0, std1=1.0, mean2=3.0, std2=1.0, weight=0.8
+        ),
+        "true_density": lambda x: (
+            0.8 * stats.norm.pdf(x, loc=-3.0, scale=1.0)
+            + 0.2 * stats.norm.pdf(x, loc=3.0, scale=1.0)
+        ),
+    },
+}
+################################################################################
 
 
 def mean_distance(x: jax.Array, data: jax.Array) -> jax.Array:
@@ -45,17 +68,6 @@ def mean_distance(x: jax.Array, data: jax.Array) -> jax.Array:
         x = jnp.array([x])
     distances = jnp.abs(x[:, jnp.newaxis] - data[jnp.newaxis, :])
     return jnp.mean(distances, axis=-1)
-
-
-def discretize(
-    x: jax.Array, bins: int, value_range: tuple[float, float]
-) -> tuple[jax.Array, jax.Array]:
-    """Discretizes x into bins over value_range, returning (bin_centers, counts)."""
-    bin_edges = jnp.linspace(value_range[0], value_range[1], bins + 1)
-    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    indices = jnp.clip(jnp.digitize(x, bin_edges) - 1, 0, bins - 1)
-    counts = jnp.bincount(indices, length=bins)
-    return bin_centers, counts
 
 
 def plot_distribution(
@@ -89,66 +101,78 @@ def plot_distribution(
 
 if __name__ == "__main__":
     key = jax.random.PRNGKey(0)
-    data_key, key = jax.random.split(key)
-    normal_fn = get_normal_function(mean=0.0, std=1.0)
-    true_density_fn = lambda x: stats.norm.pdf(x, loc=0.0, scale=1.0)
-    data = normal_fn(data_key, n=10000)
+    n_dist = len(DISTRIBUTIONS)
+    fig, axes = plt.subplots(1, n_dist, figsize=(6 * n_dist, 5))
+    if n_dist == 1:
+        axes = [axes]
 
-    normal_density_fn, params = estimated_normal_distribution(data)
-    print(f"Estimated parameters: {params}")
+    for ax, (name, config) in zip(axes, DISTRIBUTIONS.items()):
+        data_key, key = jax.random.split(key)
+        data = config["sampler"](data_key, n=N_SAMPLES)
 
-    rolling_stats, stats_hist = first_encoding(data)
-    print(
-        f"Rolling stats — mean: {rolling_stats.mean:.4f}, "
-        f"l_mean: {rolling_stats.l_mean:.4f}, u_mean: {rolling_stats.u_mean:.4f}"
-    )
+        normal_density_fn, params = estimated_normal_distribution(data)
+        print(f"[{name}] Estimated parameters: {params}")
 
-    ax = plot_distribution(
-        functions={
-            "True Normal": true_density_fn,
-            "Estimated Normal": normal_density_fn,
-        },
-        x_range=(-10, 10),
-        data=data,
-    )
-
-    ax.axvline(
-        x=float(rolling_stats.mean), linestyle="--", linewidth=1.5, label="Rolling Mean"
-    )
-
-    trans = ax.get_xaxis_transform()
-    for xval, char, label in [
-        (float(rolling_stats.l_mean), "(", "l_mean"),
-        (float(rolling_stats.u_mean), ")", "u_mean"),
-    ]:
-        ax.axvline(x=xval, linestyle=":", linewidth=1, alpha=0.6)
-        ax.text(
-            xval,
-            -0.06,
-            char,
-            transform=trans,
-            ha="center",
-            va="top",
-            fontsize=14,
-            clip_on=False,
-        )
-        ax.text(
-            xval,
-            -0.12,
-            label,
-            transform=trans,
-            ha="center",
-            va="top",
-            fontsize=7,
-            clip_on=False,
-            color="gray",
+        rolling_stats, _ = first_encoding(data)
+        print(
+            f"[{name}] Rolling stats — mean: {rolling_stats.mean:.4f}, "
+            f"l_mean: {rolling_stats.l_mean:.4f}, u_mean: {rolling_stats.u_mean:.4f}, "
+            f"count l_mean: {rolling_stats.l_count}, "
+            f"count u_mean: {rolling_stats.u_count}"
         )
 
-    ax.legend()
+        density_fns: dict[str, Callable[[jax.Array], jax.Array]] = {
+            "Estimated Normal": normal_density_fn
+        }
+        if config["true_density"] is not None:
+            density_fns["True Density"] = config["true_density"]
+
+        plot_distribution(density_fns, x_range=X_RANGE, data=data, bins=BINS, ax=ax)
+        ax.set_title(name)
+
+        ax.axvline(
+            x=float(rolling_stats.mean),
+            linestyle="--",
+            linewidth=1.5,
+            label="Rolling Mean",
+        )
+
+        trans = ax.get_xaxis_transform()
+        for xval, char, lbl in [
+            (float(rolling_stats.l_mean), "(", "l_mean"),
+            (float(rolling_stats.u_mean), ")", "u_mean"),
+        ]:
+            ax.axvline(x=xval, linestyle=":", linewidth=1, alpha=0.6)
+            ax.text(
+                xval,
+                -0.06,
+                char,
+                transform=trans,
+                ha="center",
+                va="top",
+                fontsize=14,
+                clip_on=False,
+            )
+            ax.text(
+                xval,
+                -0.12,
+                lbl,
+                transform=trans,
+                ha="center",
+                va="top",
+                fontsize=7,
+                clip_on=False,
+                color="gray",
+            )
+
+        ax.legend()
+
+        points = jnp.linspace(X_RANGE[0], X_RANGE[1], 21)
+        mean_dist = mean_distance(points, data)
+        approx_dist = approx_distance(points, rolling_stats)
+        mae = jnp.mean(jnp.abs(mean_dist - approx_dist))
+        print(f"[{name}] Mean distance vs Approx distance: {mean_dist / approx_dist}")
+        print(f"[{name}] MAE(mean_dist, approx_dist): {mae:.4f}")
+
+    plt.tight_layout()
     plt.show()
-
-    points = jnp.linspace(-10, 10, 21)
-    mean_dist = mean_distance(points, data)
-    approx_dist = approx_distance(points, rolling_stats)
-    print(f"Mean distance: {mean_dist}\nApprox distance: {approx_dist}")
-    print(f"Mean distance vs Approx distance: {mean_dist / approx_dist}")

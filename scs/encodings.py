@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from flax import struct
 import jax
 import jax.numpy as jnp
+from jax.scipy import stats
+
+if TYPE_CHECKING:
+    from typing import Callable
 
 
 @struct.dataclass
@@ -95,3 +101,15 @@ def first_encoding(x: jax.Array) -> jax.Array:
         return new_stats, new_stats
 
     return jax.lax.scan(_update_approx, stats, x)
+
+
+def estimated_normal_distribution(
+    data: jax.Array,
+) -> tuple[Callable[[jax.Array], jax.Array], dict[str, float]]:
+    mean = jnp.mean(data)
+    std = jnp.std(data)
+
+    def density(x: jax.Array) -> jax.Array:
+        return stats.norm.pdf(x, loc=mean, scale=std)
+
+    return density, {"mean": mean, "std": std}

@@ -83,3 +83,14 @@ def observations_healthcheck(
             f"Observation 1: {observation1[mask]}\n"
             f"Observation 2: {observation2[mask]}"
         )
+
+
+def discretize(
+    x: jax.Array, bins: int, value_range: tuple[float, float]
+) -> tuple[jax.Array, jax.Array]:
+    """Discretizes x into bins over value_range, returning (bin_centers, counts)."""
+    bin_edges = jnp.linspace(value_range[0], value_range[1], bins + 1)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    indices = jnp.clip(jnp.digitize(x, bin_edges) - 1, 0, bins - 1)
+    counts = jnp.bincount(indices, length=bins)
+    return bin_centers, counts
