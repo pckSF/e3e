@@ -32,20 +32,22 @@ def first_encoding(x: jax.Array) -> jax.Array:
     def _update_approx(
         carry: RunningStats, new_value: jax.Array
     ) -> tuple[RunningStats, RunningStats]:
-        cented_value = new_value - carry.mean
-        new_mean = carry.mean + cented_value / (carry.count + 1)
-        new_variance = carry.variance + cented_value * (new_value - new_mean)
-        new_std = jnp.sqrt(new_variance / (carry.count + 1e-8))
+        new_count = carry.count + 1
+        delta = new_value - carry.mean
+        new_mean = carry.mean + delta / new_count
+        new_variance = carry.variance + delta * (new_value - new_mean)
+        new_std = jnp.sqrt(new_variance / jnp.maximum(new_count - 1, 1))
 
-        value_above_mean = new_value > carry.mean
-        new_u_mean = carry.u_mean + value_above_mean * (new_value - carry.u_mean) / (
-            carry.u_count + 1
+        above = (new_value > carry.mean).astype(jnp.float32)
+        below = 1.0 - above
+        new_u_count = carry.u_count + above
+        new_l_count = carry.l_count + below
+        new_u_mean = carry.u_mean + above * (new_value - carry.u_mean) / jnp.maximum(
+            new_u_count, 1
         )
-        new_u_count = jnp.asarray(carry.u_count + value_above_mean, dtype=jnp.float32)
-        new_l_mean = carry.l_mean + (1.0 - value_above_mean) * (
-            new_value - carry.l_mean
-        ) / (carry.l_count + 1)
-        new_l_count = carry.l_count + (1.0 - value_above_mean)
+        new_l_mean = carry.l_mean + below * (new_value - carry.l_mean) / jnp.maximum(
+            new_l_count, 1
+        )
 
         new_stats = RunningStats(
             mean=new_mean,
@@ -53,7 +55,7 @@ def first_encoding(x: jax.Array) -> jax.Array:
             variance=new_variance,
             u_mean=new_u_mean,
             l_mean=new_l_mean,
-            count=carry.count + 1,
+            count=new_count,
             u_count=new_u_count,
             l_count=new_l_count,
         )
