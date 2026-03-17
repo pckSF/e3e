@@ -23,6 +23,16 @@ class RunningStats:
     l_count: int
 
 
+@struct.dataclass
+class DecayStats:
+    mean: jax.Array
+    u_mean: jax.Array
+    l_mean: jax.Array
+    count: int
+    u_count: int
+    l_count: int
+
+
 def approx_distance(x: jax.Array, stats: RunningStats) -> jax.Array:
     """Estimate the distance of ``x`` from the distribution described by ``stats``.
 
@@ -44,10 +54,22 @@ def approx_distance_weighted(x: jax.Array, stats: RunningStats) -> jax.Array:
     l_weight = stats.l_count / stats.count
     distance_u = jnp.abs(x - stats.u_mean) * u_weight
     distance_l = jnp.abs(x - stats.l_mean) * l_weight
+
+    # Test
+    d = jnp.abs(stats.u_mean - stats.l_mean)
+    lm = jnp.abs(stats.mean - stats.l_mean)
+    um = jnp.abs(stats.mean - stats.u_mean)
+
+    test_u_weight = um / d
+    test_l_weight = lm / d
+
+    print(f"u_weight: {u_weight}, test_u_weight: {test_u_weight}")
+    print(f"l_weight: {l_weight}, test_l_weight: {test_l_weight}")
+
     return distance_u + distance_l
 
 
-def first_encoding(x: jax.Array) -> jax.Array:
+def first_encoding(x: jax.Array) -> tuple[RunningStats, RunningStats]:
     """Compute running statistics over a 1-D sequence via Welford's algorithm.
 
     Scans over each element of ``x`` in order, maintaining a ``RunningStats``
@@ -103,6 +125,48 @@ def first_encoding(x: jax.Array) -> jax.Array:
             u_mean=new_u_mean,
             l_mean=new_l_mean,
             count=new_count,
+            u_count=new_u_count,
+            l_count=new_l_count,
+        )
+        return new_stats, new_stats
+
+    return jax.lax.scan(_update_approx, stats, x)
+
+
+def second_encoding(x: jax.Array, weight: float) -> tuple[DecayStats, DecayStats]:
+    """
+    Args:
+        x: A 1-D JAX array of scalar values to encode.
+        weight: The weight for the exponential moving average.
+    """
+    stats = DecayStats(
+        mean=jnp.zeros(()),
+        u_mean=jnp.zeros(()),
+        l_mean=jnp.zeros(()),
+        count=0,
+        u_count=0,
+        l_count=0,
+    )
+
+    def _update_approx(
+        carry: DecayStats, new_value: jax.Array
+    ) -> tuple[DecayStats, DecayStats]:
+        new_mean = weight * new_value + (1 - weight) * carry.mean
+
+        above = (new_value > carry.mean).astype(jnp.float32)
+        below = 1.0 - above
+
+        new_u_mean = weight * above * new_value + (1 - weight * above) * carry.u_mean
+        new_l_mean = weight * below * new_value + (1 - weight * below) * carry.l_mean
+
+        new_u_count = carry.u_count + above
+        new_l_count = carry.l_count + below
+
+        new_stats = DecayStats(
+            mean=new_mean,
+            u_mean=new_u_mean,
+            l_mean=new_l_mean,
+            count=carry.count + 1,
             u_count=new_u_count,
             l_count=new_l_count,
         )
