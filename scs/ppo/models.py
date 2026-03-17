@@ -29,6 +29,7 @@ def make_ppo_train_state(
         action_shape=env.n_actions,
         value_hidden_sizes=agent_config.value_hidden_sizes,
         policy_hidden_sizes=agent_config.policy_hidden_sizes,
+        use_layernorm=agent_config.layernorm,
         activation=get_activation_function(agent_config.activation),
         rngs=rngs,
     )
