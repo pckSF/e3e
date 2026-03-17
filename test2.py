@@ -162,7 +162,9 @@ if __name__ == "__main__":
     points = jnp.linspace(X_RANGE[0], X_RANGE[1], 21)
 
     fig, axes = plt.subplots(1, n_dist, figsize=(6 * n_dist, 5))
-    fig.suptitle(f"Second Encoding — Exponential Moving Average (weight={WEIGHT})", fontsize=14)
+    fig.suptitle(
+        f"Second Encoding — Exponential Moving Average (weight={WEIGHT})", fontsize=14
+    )
     if n_dist == 1:
         axes = [axes]
 
