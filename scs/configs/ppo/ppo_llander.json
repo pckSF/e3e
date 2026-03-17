@@ -8,7 +8,7 @@
     "value_hidden_sizes": [64, 64],
     "policy_hidden_sizes": [64, 64],
     "activation": "swish",
-    "layernorm": false,
+    "layernorm": true,
     "discount_factor": 0.99,
     "clip_parameter": 0.2,
     "entropy_coefficient": 0.01,

@@ -96,6 +96,19 @@ def discretize(
     return bin_centers, counts
 
 
+def mean_distance(x: jax.Array, data: jax.Array) -> jax.Array:
+    """Compute the mean absolute distance from each query point to a dataset.
+
+    For every element in ``x``, calculates the average absolute difference
+    against all elements in ``data``, producing one distance value per query
+    point.
+    """
+    if not isinstance(x, jax.Array):
+        x = jnp.array([x])
+    distances = jnp.abs(x[:, jnp.newaxis] - data[jnp.newaxis, :])
+    return jnp.mean(distances, axis=-1)
+
+
 def batch_means(
     data: jax.Array,
 ) -> tuple[float, float, float, int, int]:
