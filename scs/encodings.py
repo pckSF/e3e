@@ -21,6 +21,9 @@ class RunningStats:
     count: int
     u_count: int
     l_count: int
+    mean_comp: jax.Array
+    u_mean_comp: jax.Array
+    l_mean_comp: jax.Array
 
 
 @struct.dataclass
@@ -96,14 +99,22 @@ def first_encoding(x: jax.Array) -> tuple[RunningStats, RunningStats]:
         count=0,
         u_count=0,
         l_count=0,
+        mean_comp=jnp.zeros(()),
+        u_mean_comp=jnp.zeros(()),
+        l_mean_comp=jnp.zeros(()),
     )
 
     def _update_approx(
         carry: RunningStats, new_value: jax.Array
     ) -> tuple[RunningStats, RunningStats]:
         new_count = carry.count + 1
+
+        # Kahan-compensated mean update
+        mean_delta = (new_value - carry.mean) / new_count - carry.mean_comp
+        new_mean = carry.mean + mean_delta
+        mean_comp = (new_mean - carry.mean) - mean_delta
+
         delta = new_value - carry.mean
-        new_mean = carry.mean + delta / new_count
         new_variance = carry.variance + delta * (new_value - new_mean)
         new_std = jnp.sqrt(new_variance / jnp.maximum(new_count - 1, 1))
 
@@ -111,12 +122,22 @@ def first_encoding(x: jax.Array) -> tuple[RunningStats, RunningStats]:
         below = 1.0 - above
         new_u_count = carry.u_count + above
         new_l_count = carry.l_count + below
-        new_u_mean = carry.u_mean + above * (new_value - carry.u_mean) / jnp.maximum(
-            new_u_count, 1
+
+        # Kahan-compensated upper conditional mean
+        u_delta = (
+            above * (new_value - carry.u_mean) / jnp.maximum(new_u_count, 1)
+            - carry.u_mean_comp
         )
-        new_l_mean = carry.l_mean + below * (new_value - carry.l_mean) / jnp.maximum(
-            new_l_count, 1
+        new_u_mean = carry.u_mean + u_delta
+        u_mean_comp = (new_u_mean - carry.u_mean) - u_delta
+
+        # Kahan-compensated lower conditional mean
+        l_delta = (
+            below * (new_value - carry.l_mean) / jnp.maximum(new_l_count, 1)
+            - carry.l_mean_comp
         )
+        new_l_mean = carry.l_mean + l_delta
+        l_mean_comp = (new_l_mean - carry.l_mean) - l_delta
 
         new_stats = RunningStats(
             mean=new_mean,
@@ -127,6 +148,9 @@ def first_encoding(x: jax.Array) -> tuple[RunningStats, RunningStats]:
             count=new_count,
             u_count=new_u_count,
             l_count=new_l_count,
+            mean_comp=mean_comp,
+            u_mean_comp=u_mean_comp,
+            l_mean_comp=l_mean_comp,
         )
         return new_stats, new_stats
 
