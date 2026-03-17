@@ -7,16 +7,16 @@ import jax.numpy as jnp
 from jax.scipy import stats
 import matplotlib.pyplot as plt
 
+from scs.data_distributions import (
+    get_bimodal_function,
+    get_multimodal_function,
+    get_normal_function,
+)
 from scs.encodings import (
     approx_distance,
     approx_distance_weighted,
     estimated_normal_distribution,
     first_encoding,
-)
-from scs.gen_data import (
-    get_bimodal_function,
-    get_multimodal_function,
-    get_normal_function,
 )
 from scs.utils import batch_means, discretize
 
