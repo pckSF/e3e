@@ -8,6 +8,7 @@ dependencies = [
     "box2d-py>=2.3.8",
     "flax>=0.12.4",
     "gymnasium[mujoco]>=1.2.3",
+    "h5py>=3.16.0",
     "jax[cuda13]>=0.9.0.1",
     "matplotlib>=3.10.8",
     "ml-collections>=1.1.0",
