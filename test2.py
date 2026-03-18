@@ -16,7 +16,7 @@ from scs.encodings import (
     approx_distance,
     approx_distance_weighted,
     estimated_normal_distribution,
-    first_encoding,
+    second_encoding,
 )
 from scs.utils import batch_means, discretize, mean_distance
 
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 N_SAMPLES: int = 10_000
 X_RANGE: tuple[int, int] = (-10, 10)
 BINS: int = 50
+WEIGHT: float = 0.01  # EMA weight for second_encoding; higher = faster adaptation
 
 DISTRIBUTIONS: dict[str, dict[str, Callable[[jax.Array], jax.Array]]] = {
     "normal": {
@@ -161,7 +162,9 @@ if __name__ == "__main__":
     points = jnp.linspace(X_RANGE[0], X_RANGE[1], 21)
 
     fig, axes = plt.subplots(1, n_dist, figsize=(6 * n_dist, 5))
-    fig.suptitle("First Encoding — Welford's Running Statistics", fontsize=14)
+    fig.suptitle(
+        f"Second Encoding — Exponential Moving Average (weight={WEIGHT})", fontsize=14
+    )
     if n_dist == 1:
         axes = [axes]
 
@@ -172,7 +175,7 @@ if __name__ == "__main__":
         normal_density_fn, params = estimated_normal_distribution(data)
         print(f"[{name}] Estimated parameters: {params}")
 
-        rolling_stats, _ = first_encoding(data)
+        rolling_stats, _ = second_encoding(data, WEIGHT)
         m, u_m, l_m, u_count, l_count = batch_means(data)
         print(
             f"[{name}] Rolling stats — mean: {rolling_stats.mean:.4f}, "
