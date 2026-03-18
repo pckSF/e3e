@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pickle
 from typing import TYPE_CHECKING
 
 from flax import (
@@ -40,14 +39,6 @@ class TrajectoryData:
     truncated: jax.Array
 
     @classmethod
-    def load(cls, path: str) -> TrajectoryData:
-        """Loads TrajectoryData from a pickle file."""
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "rb") as f:
-            data = pickle.load(f)
-        return cls(**data)
-
-    @classmethod
     def load_hdf5(cls, path: str) -> TrajectoryData:
         """Loads TrajectoryData from an HDF5 file."""
         with h5py.File(path, "r") as f:
@@ -60,20 +51,6 @@ class TrajectoryData:
                 terminals=jnp.asarray(f["terminals"]),
                 truncated=jnp.asarray(f["truncated"]),
             )
-
-    def save(self, path: str) -> None:
-        """Saves TrajectoryData to a pickle file."""
-        data_dict = {
-            "observations": self.observations,
-            "actions": self.actions,
-            "policy_logits": self.policy_logits,
-            "rewards": self.rewards,
-            "next_observations": self.next_observations,
-            "terminals": self.terminals,
-            "truncated": self.truncated,
-        }
-        with open(path, "wb") as f:
-            pickle.dump(data_dict, f)
 
     def save_hdf5(self, path: str, compression: str = "gzip") -> None:
         """Saves TrajectoryData to an HDF5 file."""
