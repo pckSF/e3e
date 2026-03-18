@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
 import pickle
 from typing import TYPE_CHECKING
 
 from flax import (
     struct,
 )
+import h5py
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 if TYPE_CHECKING:
     from scs.ppo.agent_config import PPOConfig
@@ -39,9 +42,24 @@ class TrajectoryData:
     @classmethod
     def load(cls, path: str) -> TrajectoryData:
         """Loads TrajectoryData from a pickle file."""
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "rb") as f:
             data = pickle.load(f)
         return cls(**data)
+
+    @classmethod
+    def load_hdf5(cls, path: str) -> TrajectoryData:
+        """Loads TrajectoryData from an HDF5 file."""
+        with h5py.File(path, "r") as f:
+            return cls(
+                observations=jnp.asarray(f["observations"]),
+                actions=jnp.asarray(f["actions"]),
+                policy_logits=jnp.asarray(f["policy_logits"]),
+                rewards=jnp.asarray(f["rewards"]),
+                next_observations=jnp.asarray(f["next_observations"]),
+                terminals=jnp.asarray(f["terminals"]),
+                truncated=jnp.asarray(f["truncated"]),
+            )
 
     def save(self, path: str) -> None:
         """Saves TrajectoryData to a pickle file."""
@@ -56,6 +74,25 @@ class TrajectoryData:
         }
         with open(path, "wb") as f:
             pickle.dump(data_dict, f)
+
+    def save_hdf5(self, path: str, compression: str = "gzip") -> None:
+        """Saves TrajectoryData to an HDF5 file."""
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with h5py.File(path, "w") as f:
+            for name in (
+                "observations",
+                "actions",
+                "policy_logits",
+                "rewards",
+                "next_observations",
+                "terminals",
+                "truncated",
+            ):
+                f.create_dataset(
+                    name,
+                    data=np.asarray(getattr(self, name)),
+                    compression=compression,
+                )
 
 
 def get_batch_from_trajectory(

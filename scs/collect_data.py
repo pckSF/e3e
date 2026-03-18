@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Self
 
 from flax import nnx
 import gymnasium as gym
+import h5py
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -17,8 +18,94 @@ from scs.nn_modules import get_activation_function
 from scs.ppo.models import PPOModel
 
 if TYPE_CHECKING:
-    from scs.data_logging import DataLogger
+    from types import TracebackType
+
     from scs.env_wrapper import JNPWrapper
+
+# Fields written to the HDF5 file, in canonical order.
+_TRAJECTORY_FIELDS: tuple[str, ...] = (
+    "observations",
+    "actions",
+    "policy_logits",
+    "rewards",
+    "next_observations",
+    "terminals",
+    "truncated",
+)
+
+
+class TrajectoryWriter:
+    """Incrementally writes trajectory data to an HDF5 file.
+
+    Datasets are created on the first call to ``add_episode`` and extended
+    on subsequent calls, so memory usage stays constant regardless of total
+    dataset size.
+
+    Use as a context manager::
+
+        with TrajectoryWriter("data.hdf5") as writer:
+            writer.add_episode(episode_arrays)
+    """
+
+    def __init__(
+        self,
+        path: str | Path,
+        metadata: dict[str, Any] | None = None,
+        compression: str = "gzip",
+    ) -> None:
+        self._path = Path(path)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._compression = compression
+        self._metadata = metadata or {}
+        self._file: h5py.File | None = None
+        self._total_steps = 0
+
+    def __enter__(self) -> Self:
+        self._file = h5py.File(self._path, "w")
+        for key, value in self._metadata.items():
+            self._file.attrs[key] = value
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        if self._file is not None:
+            self._file.attrs["total_timesteps"] = self._total_steps
+            self._file.close()
+            self._file = None
+
+    def add_episode(self, episode: dict[str, np.ndarray]) -> None:
+        """Append one episode's worth of timesteps to the HDF5 datasets.
+
+        Args:
+            episode: Mapping from field name to array of shape
+                ``[episode_length, ...]``.
+        """
+        assert self._file is not None, "Writer must be used as a context manager."
+        n_steps = episode["observations"].shape[0]
+
+        for name in _TRAJECTORY_FIELDS:
+            arr = episode[name]
+            if name not in self._file:
+                maxshape = (None,) + arr.shape[1:]
+                chunks = (min(n_steps, 1024),) + arr.shape[1:]
+                self._file.create_dataset(
+                    name,
+                    data=arr,
+                    maxshape=maxshape,
+                    chunks=chunks,
+                    compression=self._compression,
+                )
+            else:
+                ds = self._file[name]
+                old_len = ds.shape[0]
+                ds.resize(old_len + n_steps, axis=0)
+                ds[old_len:] = arr
+
+        self._total_steps += n_steps
 
 
 def load_model(path: str) -> PPOModel:
@@ -58,14 +145,14 @@ def collect_data(
     n_episodes: int,
     max_length: int,
     key: jax.Array,
-    logger: DataLogger,
+    writer: TrajectoryWriter,
 ) -> None:
     episode_keys = jax.random.split(key, num=n_episodes)
 
     def _transition(
         observation: jax.Array,
         action_key: jax.Array,
-    ) -> tuple[jax.Array, TrajectoryData]:
+    ) -> tuple[jax.Array, TrajectoryData, jax.Array]:
         """Performs one vectorized transition and captures trajectory data."""
         policy_logits = model.get_policy_logits(observation)
         action = jax.random.categorical(action_key, policy_logits)
@@ -80,18 +167,25 @@ def collect_data(
             truncated,
         )
         reset_mask = jnp.logical_or(terminated, truncated)
-        if jnp.any(reset_mask):
-            next_observation = env.reset(options={"reset_mask": np.asarray(reset_mask)})
-        return next_observation, timestep
+        return next_observation, timestep, reset_mask
 
     for ek in tqdm(episode_keys, total=n_episodes, desc="Collecting episodes"):
         step_keys = jax.random.split(ek, num=max_length)
         obs = env.reset()
+
+        # Buffer one episode in numpy arrays
+        ep_data: dict[str, list[np.ndarray]] = {f: [] for f in _TRAJECTORY_FIELDS}
         for sk in step_keys:
-            obs, timestep = _transition(obs, sk)
-            logger.save_csv_rows_async("observations", timestep.observations)
-            logger.save_csv_rows_async("actions", timestep.actions)
-            logger.save_csv_rows_async("rewards", timestep.rewards)
-            logger.save_csv_rows_async("next_observations", timestep.next_observations)
-            logger.save_csv_rows_async("terminals", timestep.terminals)
-            logger.save_csv_rows_async("truncated", timestep.truncated)
+            obs, timestep, reset_mask = _transition(obs, sk)
+            ep_data["observations"].append(np.asarray(timestep.observations))
+            ep_data["actions"].append(np.asarray(timestep.actions))
+            ep_data["policy_logits"].append(np.asarray(timestep.policy_logits))
+            ep_data["rewards"].append(np.asarray(timestep.rewards))
+            ep_data["next_observations"].append(np.asarray(timestep.next_observations))
+            ep_data["terminals"].append(np.asarray(timestep.terminals))
+            ep_data["truncated"].append(np.asarray(timestep.truncated))
+            if np.any(reset_mask):
+                break
+
+        # Stack episode and write to HDF5 in one resize call
+        writer.add_episode({k: np.stack(v) for k, v in ep_data.items()})
