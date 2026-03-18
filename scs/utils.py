@@ -132,3 +132,26 @@ def batch_means(
     u_m = float(jnp.mean(data[above]))
     l_m = float(jnp.mean(data[~above]))
     return float(m), u_m, l_m, u_count, l_count
+
+
+def neighborhood_counts(data: jax.Array, window_size: float) -> jax.Array:
+    """Count how many points fall within a symmetric window around each point.
+
+    Args:
+        data: 1-D JAX array of values sorted in ascending order.
+        window_size: Half-width of the window, i.e. the neighbourhood of ``x``
+            is ``(x - window_size, x + window_size)``.
+
+    Returns:
+        1-D integer array of the same length as ``data``, where element ``i``
+        is the number of points in ``data`` within ``window_size`` of
+        ``data[i]``.
+    """
+
+    def _count(x: jax.Array) -> int:
+        l_idx, r_idx = jnp.searchsorted(
+            data, jnp.array([x - window_size, x + window_size])
+        )
+        return r_idx - l_idx
+
+    return jax.vmap(_count)(data)

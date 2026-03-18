@@ -158,10 +158,21 @@ def first_encoding(x: jax.Array) -> tuple[RunningStats, RunningStats]:
 
 
 def second_encoding(x: jax.Array, weight: float) -> tuple[DecayStats, DecayStats]:
-    """
+    """Compute exponential-decay statistics over a 1-D sequence.
+
+    Scans over ``x`` maintaining an EMA of the overall mean and the upper/lower
+    conditional means (means of values above and below the current mean).
+
     Args:
         x: A 1-D JAX array of scalar values to encode.
-        weight: The weight for the exponential moving average.
+        weight: EMA weight applied to the newest observation; the previous
+            estimate is retained with weight ``1 - weight``.
+
+    Returns:
+        A tuple ``(final_stats, all_stats)`` where ``final_stats`` is the
+        ``DecayStats`` after the full sequence and ``all_stats`` is a
+        ``DecayStats`` whose leaves are arrays of shape ``(len(x),)``
+        holding the statistics recorded after each step.
     """
     stats = DecayStats(
         mean=jnp.zeros(()),

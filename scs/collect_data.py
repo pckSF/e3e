@@ -41,7 +41,12 @@ class TrajectoryWriter:
     on subsequent calls, so memory usage stays constant regardless of total
     dataset size.
 
-    Use as a context manager::
+    Args:
+        path: Destination HDF5 file; parent directories are created if needed.
+        metadata: Key-value pairs stored as HDF5 root attributes.
+        compression: HDF5 compression filter applied to every dataset.
+
+    Example::
 
         with TrajectoryWriter("data.hdf5") as writer:
             writer.add_episode(episode_arrays)
@@ -83,6 +88,9 @@ class TrajectoryWriter:
         Args:
             episode: Mapping from field name to array of shape
                 ``[episode_length, ...]``.
+
+        Raises:
+            AssertionError: If called outside of a ``with`` block.
         """
         assert self._file is not None, "Writer must be used as a context manager."
         n_steps = episode["observations"].shape[0]
