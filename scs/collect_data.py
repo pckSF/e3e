@@ -15,9 +15,9 @@ from tqdm import tqdm
 from scs.data import TrajectoryData
 from scs.nn_modules import get_activation_function
 from scs.ppo.models import PPOModel
-from scs.utils import stack_trajectories
 
 if TYPE_CHECKING:
+    from scs.data_logging import DataLogger
     from scs.env_wrapper import JNPWrapper
 
 
@@ -58,7 +58,8 @@ def collect_data(
     n_episodes: int,
     max_length: int,
     key: jax.Array,
-) -> TrajectoryData:
+    logger: DataLogger,
+) -> None:
     episode_keys = jax.random.split(key, num=n_episodes)
 
     def _transition(
@@ -83,11 +84,14 @@ def collect_data(
             next_observation = env.reset(options={"reset_mask": np.asarray(reset_mask)})
         return next_observation, timestep
 
-    trajectory = []
     for ek in tqdm(episode_keys, total=n_episodes, desc="Collecting episodes"):
         step_keys = jax.random.split(ek, num=max_length)
         obs = env.reset()
         for sk in step_keys:
             obs, timestep = _transition(obs, sk)
-            trajectory.append(timestep)
-    return stack_trajectories(trajectory)
+            logger.save_csv_rows_async("observations", timestep.observations)
+            logger.save_csv_rows_async("actions", timestep.actions)
+            logger.save_csv_rows_async("rewards", timestep.rewards)
+            logger.save_csv_rows_async("next_observations", timestep.next_observations)
+            logger.save_csv_rows_async("terminals", timestep.terminals)
+            logger.save_csv_rows_async("truncated", timestep.truncated)
