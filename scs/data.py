@@ -22,21 +22,21 @@ class TrajectoryData:
     Fields that are scanned over axis 0:
 
     - ``observations``:         ``[T, N, obs_dim]``
-    - ``actions``:              ``[T, N]`` (discrete action indices)
-    - ``policy_logits``:        ``[T, N, n_actions]``
+    - ``actions``:              ``[T, N, action_dim]``
+    - ``action_log_densities``: ``[T, N, action_dim]``
     - ``rewards``:              ``[T, N]``
     - ``next_observations``:    ``[T, N, obs_dim]``
     - ``terminals``:            ``[T, N]``
-    - ``truncated``:            ``[T, N]``
+    - ``truncations``:          ``[T, N]``
     """
 
     observations: jax.Array
     actions: jax.Array
-    policy_logits: jax.Array
+    action_log_densities: jax.Array
     rewards: jax.Array
     next_observations: jax.Array
     terminals: jax.Array
-    truncated: jax.Array
+    truncations: jax.Array
 
     @classmethod
     def load_hdf5(cls, path: str) -> TrajectoryData:

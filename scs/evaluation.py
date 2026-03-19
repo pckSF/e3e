@@ -41,9 +41,11 @@ def evaluation_trajectory(
         key: jax.Array,
     ) -> tuple[jax.Array, jax.Array, jax.Array]:
         """Performs a transition during evaluation; rewards are masked after done."""
-        policy_logits = model.get_policy_logits(observation)
-        action = jax.random.categorical(key, policy_logits)
-        next_observation, reward, termination, truncation = env.step(action)
+        a_mean, a_log_std = model.get_policy(observation)
+        a_std = jnp.exp(a_log_std)
+        normal_sample = jax.random.normal(key, shape=a_mean.shape)
+        action = a_mean + a_std * normal_sample
+        next_observation, reward, termination, truncation = env.step(jnp.tanh(action))
         step_reward = reward * jnp.logical_not(terminated)
         done = jnp.logical_or(termination, truncation)
         terminated = jnp.logical_or(terminated, done)

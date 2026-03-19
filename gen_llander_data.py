@@ -13,24 +13,24 @@ from scs.env_wrapper import JNPWrapper
 ################################################################################
 checkpoint_path: str = (
     "/home/pcksf/projects/e3e/logs/ppo_LunarLander-v3"
-    "_a275b94b4a0f84073ded1111e174b93f/20260317_145825/checkpoint_00015"
+    "_f5632d7f77300b6c8cc26036f8365a44/20260319_172631/checkpoint_00027"
 )
 episodes: int = 1000
 max_length: int = 250
-data_dir: str = "data/llander_trajectories"
+data_dir: str = "data/cllander_trajectories"
 seed: int = 0
 ################################################################################
 
 if __name__ == "__main__":
-    model = load_model(checkpoint_path)
+    env = JNPWrapper(gym.make("LunarLander-v3", continuous=True))
+    model = load_model(checkpoint_path, env)
     key = jax.random.PRNGKey(seed)
     print(f"Loaded model from checkpoint: {checkpoint_path}")
     print(f"Collecting trajectory data with seed: {seed}")
-    env = JNPWrapper(gym.make("LunarLander-v3"))
 
     out_path = Path(data_dir) / f"episodes_{episodes}_maxlen_{max_length}.hdf5"
     metadata = {
-        "env_name": "LunarLander-v3",
+        "env_name": "LunarLander-v3-continuous",
         "checkpoint_path": checkpoint_path,
         "n_episodes": episodes,
         "max_length": max_length,

@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from scs.data import TrajectoryData
+from scs.rl_computations import on_distribution_action_normal_log_density
 from scs.utils import stack_trajectories
 
 if TYPE_CHECKING:
@@ -45,13 +46,18 @@ def collect_trajectories(
         action_key: jax.Array,
     ) -> tuple[jax.Array, TrajectoryData]:
         """Performs one vectorized transition and captures trajectory data."""
-        policy_logits = model.get_policy_logits(observation)
-        action = jax.random.categorical(action_key, policy_logits)
-        next_observation, reward, terminated, truncated = env.step(action)
+        a_mean, a_log_std = model.get_policy(observation)
+        a_std = jnp.exp(a_log_std)
+        normal_sample = jax.random.normal(action_key, shape=a_mean.shape)
+        action = a_mean + a_std * normal_sample
+        action_log_density = on_distribution_action_normal_log_density(
+            normal_sample, a_log_std
+        )
+        next_observation, reward, terminated, truncated = env.step(jnp.tanh(action))
         timestep = TrajectoryData(
             observation,
             action,
-            policy_logits,
+            action_log_density,
             reward,
             next_observation,
             terminated,

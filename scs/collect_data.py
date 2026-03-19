@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
 from flax import nnx
-import gymnasium as gym
 import h5py
 import jax
 import jax.numpy as jnp
@@ -16,6 +15,7 @@ from tqdm import tqdm
 from scs.data import TrajectoryData
 from scs.nn_modules import get_activation_function
 from scs.ppo.models import PPOModel
+from scs.rl_computations import on_distribution_action_normal_log_density
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 _TRAJECTORY_FIELDS: tuple[str, ...] = (
     "observations",
     "actions",
-    "policy_logits",
+    "action_log_densities",
     "rewards",
     "next_observations",
     "terminals",
@@ -116,22 +116,17 @@ class TrajectoryWriter:
         self._total_steps += n_steps
 
 
-def load_model(path: str) -> PPOModel:
+def load_model(path: str, env: JNPWrapper) -> PPOModel:
     model_path = Path(path)
     if not model_path.is_dir():
         raise ValueError("Model path must be a directory containing model checkpoints.")
     run_dir = model_path.parent
     config = json.loads((run_dir / "config.json").read_text())
 
-    env = gym.make(config["env_name"])
-    n_obs = env.observation_space.shape[0]
-    n_actions = int(env.action_space.n)
-    env.close()
-
     abstract_model = nnx.eval_shape(
         lambda: PPOModel(
-            input_features=n_obs,
-            action_shape=n_actions,
+            input_features=env.observation_shape[0],
+            action_shape=env.action_shape[0],
             value_hidden_sizes=tuple(config["value_hidden_sizes"]),
             policy_hidden_sizes=tuple(config["policy_hidden_sizes"]),
             use_layernorm=config["layernorm"],
@@ -162,13 +157,18 @@ def collect_data(
         action_key: jax.Array,
     ) -> tuple[jax.Array, TrajectoryData, jax.Array]:
         """Performs one vectorized transition and captures trajectory data."""
-        policy_logits = model.get_policy_logits(observation)
-        action = jax.random.categorical(action_key, policy_logits)
-        next_observation, reward, terminated, truncated = env.step(action)
+        a_mean, a_log_std = model.get_policy(observation)
+        a_std = jnp.exp(a_log_std)
+        normal_sample = jax.random.normal(action_key, shape=a_mean.shape)
+        action = a_mean + a_std * normal_sample
+        action_log_density = on_distribution_action_normal_log_density(
+            normal_sample, a_log_std
+        )
+        next_observation, reward, terminated, truncated = env.step(jnp.tanh(action))
         timestep = TrajectoryData(
             observation,
             action,
-            policy_logits,
+            action_log_density,
             reward,
             next_observation,
             terminated,
@@ -187,11 +187,13 @@ def collect_data(
             obs, timestep, reset_mask = _transition(obs, sk)
             ep_data["observations"].append(np.asarray(timestep.observations))
             ep_data["actions"].append(np.asarray(timestep.actions))
-            ep_data["policy_logits"].append(np.asarray(timestep.policy_logits))
+            ep_data["action_log_densities"].append(
+                np.asarray(timestep.action_log_densities)
+            )
             ep_data["rewards"].append(np.asarray(timestep.rewards))
             ep_data["next_observations"].append(np.asarray(timestep.next_observations))
             ep_data["terminals"].append(np.asarray(timestep.terminals))
-            ep_data["truncated"].append(np.asarray(timestep.truncated))
+            ep_data["truncated"].append(np.asarray(timestep.truncations))
             if np.any(reset_mask):
                 break
 

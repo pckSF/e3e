@@ -76,6 +76,7 @@ def main() -> None:
         env = JNPWrapper(
             gym.make_vec(
                 agent_config.env_name,
+                continuous=True,
                 num_envs=agent_config.n_actors,
                 vectorization_mode="sync",
             ),
