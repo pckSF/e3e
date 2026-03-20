@@ -45,11 +45,11 @@ class TrajectoryData:
             return cls(
                 observations=jnp.asarray(f["observations"]),
                 actions=jnp.asarray(f["actions"]),
-                policy_logits=jnp.asarray(f["policy_logits"]),
+                action_log_densities=jnp.asarray(f["action_log_densities"]),
                 rewards=jnp.asarray(f["rewards"]),
                 next_observations=jnp.asarray(f["next_observations"]),
                 terminals=jnp.asarray(f["terminals"]),
-                truncated=jnp.asarray(f["truncated"]),
+                truncations=jnp.asarray(f["truncations"]),
             )
 
     def save_hdf5(self, path: str, compression: str = "gzip") -> None:
@@ -59,11 +59,11 @@ class TrajectoryData:
             for name in (
                 "observations",
                 "actions",
-                "policy_logits",
+                "action_log_densities",
                 "rewards",
                 "next_observations",
                 "terminals",
-                "truncated",
+                "truncations",
             ):
                 f.create_dataset(
                     name,

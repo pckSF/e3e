@@ -30,7 +30,7 @@ _TRAJECTORY_FIELDS: tuple[str, ...] = (
     "rewards",
     "next_observations",
     "terminals",
-    "truncated",
+    "truncations",
 )
 
 
@@ -193,7 +193,7 @@ def collect_data(
             ep_data["rewards"].append(np.asarray(timestep.rewards))
             ep_data["next_observations"].append(np.asarray(timestep.next_observations))
             ep_data["terminals"].append(np.asarray(timestep.terminals))
-            ep_data["truncated"].append(np.asarray(timestep.truncations))
+            ep_data["truncations"].append(np.asarray(timestep.truncations))
             if np.any(reset_mask):
                 break
 
