@@ -11,31 +11,25 @@ from scs.utils import neighborhood_counts
 ################################################################################
 # Hyperparameters
 ################################################################################
-data_path: str = "data/llander_trajectories/episodes_1000_maxlen_250.hdf5"
+data_path: str = "data/cllander_trajectories/episodes_1000_maxlen_250.hdf5"
 ################################################################################
 
 
 if __name__ == "__main__":
     data = TrajectoryData.load_hdf5(data_path)
     print(f"Loaded trajectory data from: {data_path}")
-    observations = data.observations
+    observations = jnp.tanh(data.actions)
     n_dims = observations.shape[1]
     sorted_obs = jnp.sort(observations, axis=0)
 
     feature_names = [
-        "x position",
-        "y position",
-        "x velocity",
-        "y velocity",
-        "angle",
-        "angular velocity",
-        "left leg contact",
-        "right leg contact",
+        "Main Thruster",
+        "Lateral Thruster",
     ]
     window_size = 0.1
 
-    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
-    for i, ax in enumerate(axes.flat):
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    for i, ax in enumerate(axes):
         col = sorted_obs[:, i]
 
         counts = neighborhood_counts(col, window_size)

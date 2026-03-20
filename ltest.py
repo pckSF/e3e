@@ -16,26 +16,20 @@ from scs.utils import discretize, mean_distance
 ################################################################################
 # Hyperparameters
 ################################################################################
-data_path: str = "data/llander_trajectories/episodes_1000_maxlen_250.hdf5"
+data_path: str = "data/cllander_trajectories/episodes_1000_maxlen_250.hdf5"
 BINS: int = 50
 EUCLIDEAN_SUBSAMPLE: int = 2000  # pairwise cost is O(N²·D); subsample to keep it fast
 ################################################################################
 
 OBS_LABELS = [
-    "x position",
-    "y position",
-    "x velocity",
-    "y velocity",
-    "angle",
-    "angular velocity",
-    "left leg contact",
-    "right leg contact",
+    "Main Thruster",
+    "Lateral Thruster",
 ]
 
 if __name__ == "__main__":
     data = TrajectoryData.load_hdf5(data_path)
     print(f"Loaded trajectory data from: {data_path}")
-    observations = data.observations  # [T, 8]
+    observations = jnp.tanh(data.actions)  # [T, 2]
     n_dims = observations.shape[1]
 
     # Euclidean baseline — computed once, overlaid on all bottom-row plots.
@@ -52,7 +46,7 @@ if __name__ == "__main__":
     print(f"Euclidean baseline computed on {EUCLIDEAN_SUBSAMPLE} subsampled points.")
 
     fig, axes = plt.subplots(2, n_dims, figsize=(4 * n_dims, 8))
-    fig.suptitle("Observation Distributions — First Encoding (Welford's)", fontsize=14)
+    fig.suptitle("Action Distributions — First Encoding (Welford's)", fontsize=14)
 
     for d in range(n_dims):
         obs_d = observations[:, d]
